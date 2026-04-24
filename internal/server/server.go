@@ -13,7 +13,8 @@ import (
 // Server is the central control server.
 type Server struct {
 	bindAddr     string
-	secret       string
+	ciSecret     string // used by CI/CD pipelines to create/read tasks
+	agentSecret  string // used by agents to heartbeat, fetch tasks, and report results
 	agentTimeout time.Duration
 	store        store
 	router       *http.ServeMux
@@ -22,10 +23,11 @@ type Server struct {
 }
 
 // New creates and configures a Server.
-func New(bindAddr, secret string, agentTimeout time.Duration) *Server {
+func New(bindAddr, ciSecret, agentSecret string, agentTimeout time.Duration) *Server {
 	s := &Server{
 		bindAddr:     bindAddr,
-		secret:       secret,
+		ciSecret:     ciSecret,
+		agentSecret:  agentSecret,
 		agentTimeout: agentTimeout,
 		store:        newMemStore(),
 		router:       http.NewServeMux(),
@@ -87,24 +89,33 @@ func (s *Server) routes() {
 	// Unauthenticated.
 	s.router.HandleFunc("/health", s.handleHealth)
 
-	// Agent-facing.
-	s.router.HandleFunc("/api/v1/agents/heartbeat", s.auth(s.handleHeartbeat))
-	s.router.HandleFunc("/api/v1/agents/{id}/tasks", s.auth(s.handleAgentTasks))
+	// Agent-facing (agent secret).
+	s.router.HandleFunc("/api/v1/agents/heartbeat", s.authAgent(s.handleHeartbeat))
+	s.router.HandleFunc("/api/v1/agents/{id}/disconnect", s.authAgent(s.handleAgentDisconnect))
+	s.router.HandleFunc("/api/v1/agents/{id}/tasks", s.authAgent(s.handleAgentTasks))
+	s.router.HandleFunc("/api/v1/tasks/{id}/result", s.authAgent(s.handleTaskResult))
 
-	// CI/CD and admin facing.
-	s.router.HandleFunc("/api/v1/agents", s.auth(s.handleAgents))
-	s.router.HandleFunc("/api/v1/tasks", s.auth(s.handleTasks))
-	s.router.HandleFunc("/api/v1/tasks/{id}/result", s.auth(s.handleTaskResult))
-	s.router.HandleFunc("/api/v1/tasks/{id}", s.auth(s.handleTask))
+	// CI/CD and admin facing (CI secret).
+	s.router.HandleFunc("/api/v1/agents", s.authCI(s.handleAgents))
+	s.router.HandleFunc("/api/v1/tasks", s.authCI(s.handleTasks))
+	s.router.HandleFunc("/api/v1/tasks/{id}", s.authCI(s.handleTask))
 }
 
-// auth wraps a handler requiring a valid Bearer token.
+func (s *Server) authAgent(next http.HandlerFunc) http.HandlerFunc {
+	return s.authWith(s.agentSecret, next)
+}
+
+func (s *Server) authCI(next http.HandlerFunc) http.HandlerFunc {
+	return s.authWith(s.ciSecret, next)
+}
+
+// authWith wraps a handler requiring a specific Bearer token.
 // Uses constant-time comparison to prevent timing attacks.
-func (s *Server) auth(next http.HandlerFunc) http.HandlerFunc {
+func (s *Server) authWith(secret string, next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		header := r.Header.Get("Authorization")
 		token, _ := strings.CutPrefix(header, "Bearer ")
-		if subtle.ConstantTimeCompare([]byte(token), []byte(s.secret)) != 1 {
+		if subtle.ConstantTimeCompare([]byte(token), []byte(secret)) != 1 {
 			utils.Logger.Warnf("unauthorized %s %s from %s", r.Method, r.URL.Path, r.RemoteAddr)
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return

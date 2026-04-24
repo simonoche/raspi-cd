@@ -32,8 +32,15 @@ func main() {
 			&cli.StringFlag{
 				Name:     "secret",
 				Aliases:  []string{"k"},
-				Usage:    "shared Bearer token secret",
+				Usage:    "CI/CD Bearer token secret (used by pipelines to create tasks)",
 				EnvVars:  []string{"RASPIDEPLOY_SECRET"},
+				Required: true,
+			},
+			&cli.StringFlag{
+				Name:     "agent-secret",
+				Aliases:  []string{"K"},
+				Usage:    "agent Bearer token secret (used by agents to poll and report)",
+				EnvVars:  []string{"RASPIDEPLOY_AGENT_SECRET"},
 				Required: true,
 			},
 			&cli.DurationFlag{
@@ -64,7 +71,7 @@ func run(c *cli.Context) error {
 	}
 	utils.Logger.Infof("RaspiDeploy server v%s", version)
 
-	srv := server.New(c.String("bind"), c.String("secret"), c.Duration("agent-timeout"))
+	srv := server.New(c.String("bind"), c.String("secret"), c.String("agent-secret"), c.Duration("agent-timeout"))
 
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)

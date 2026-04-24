@@ -103,6 +103,21 @@ func (s *Server) handleHeartbeat(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
+// handleAgentDisconnect serves POST /api/v1/agents/{id}/disconnect.
+func (s *Server) handleAgentDisconnect(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		methodNotAllowed(w, r)
+		return
+	}
+	agentID := r.PathValue("id")
+	if s.store.setAgentOffline(agentID) {
+		utils.Logger.Infof("agent disconnected: %s", agentID)
+	} else {
+		utils.Logger.Warnf("disconnect request for unknown agent: %s", agentID)
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
 // handleAgentTasks serves GET /api/v1/agents/{id}/tasks — pending tasks for one agent.
 func (s *Server) handleAgentTasks(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {

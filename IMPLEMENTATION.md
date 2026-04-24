@@ -1,11 +1,11 @@
-# RaspiDeploy — Implementation Plan
+# RaspiDeploy — Implementation Reference
 
 ## Overview
 
 RaspiDeploy is a lightweight remote-deployment system for Raspberry Pis that sit behind a NAT (no public IP, no exposed ports). It consists of two binaries:
 
 - **Server** — a publicly accessible REST API. CI/CD pipelines push deployment tasks to it. Runs in Docker.
-- **Agent** — a daemon installed on each Raspberry Pi. It polls the server, picks up tasks, and executes them locally (git operations + shell commands). No inbound connectivity required.
+- **Agent** — a daemon installed on each Raspberry Pi. It polls the server, picks up tasks, and executes them locally. No inbound connectivity required.
 
 ---
 
@@ -33,10 +33,23 @@ RaspiDeploy is a lightweight remote-deployment system for Raspberry Pis that sit
 
 ## Security Model
 
+### Authentication
+
 - A single shared secret (`RASPIDEPLOY_SECRET`) is required on both sides.
 - Every API request (including agent calls) must carry the header `Authorization: Bearer <secret>`.
 - The `/health` endpoint is unauthenticated (used for Docker health checks and uptime monitoring).
-- In a future iteration the secret can be rotated per-agent, but a global secret is sufficient for v1.
+- `crypto/subtle.ConstantTimeCompare` is used for token comparison to prevent timing attacks.
+- Unauthorized requests are logged at WARN level with the remote IP.
+
+### Named script execution (Option A)
+
+The recommended task type for secure execution is `named_script`. Instead of sending raw shell commands over the wire, CI/CD sends only a **script name**. The actual script lives on the Pi at a pre-configured directory.
+
+Security checks the agent performs before executing any named script:
+
+1. **Name validation** — script name must match `[a-zA-Z0-9_-]+`. Slashes, dots, and shell metacharacters are rejected, preventing path traversal (`../etc/passwd`) and injection attacks.
+2. **File existence** — the script must exist under `scripts_dir`. If not found, the task fails with a clear error.
+3. **Executability** — the file must have the execute bit set (`chmod +x`). This prevents accidentally running untrusted files copied to the directory.
 
 ---
 
@@ -46,24 +59,34 @@ RaspiDeploy is a lightweight remote-deployment system for Raspberry Pis that sit
 raspideploy/
 ├── cmd/
 │   ├── server/
-│   │   └── main.go          # Server entrypoint (CLI flags, signal handling)
+│   │   └── main.go                  # Server entrypoint (CLI flags, signal handling)
 │   └── agent/
-│       └── main.go          # Agent entrypoint (CLI flags, main poll loop)
+│       └── main.go                  # Agent entrypoint (CLI flags, poll loop)
 ├── internal/
 │   ├── server/
-│   │   ├── server.go        # HTTP server, route setup, auth middleware
-│   │   ├── handlers.go      # One handler per route group
-│   │   └── store.go         # In-memory store (agents, tasks) behind an interface
+│   │   ├── server.go                # HTTP server, route setup, auth middleware, stale sweep
+│   │   ├── handlers.go              # One handler per route
+│   │   └── store.go                 # In-memory store behind an interface
 │   ├── agent/
-│   │   ├── client.go        # HTTP client — heartbeat, fetch tasks, report results
-│   │   └── executor.go      # Task execution logic
+│   │   ├── client.go                # Auth-aware HTTP client
+│   │   └── executor.go              # Task execution (deploy, script, restart, named_script)
 │   ├── models/
-│   │   └── models.go        # Shared types: Task, Agent, TaskStatus, payloads
+│   │   └── models.go                # Shared types: Task, Agent, TaskStatus, payloads
 │   └── utils/
-│       └── logger.go        # Structured logger (logrus)
-├── Dockerfile.server        # Multi-stage build, non-root user
-├── docker-compose.yml       # Server + named volume for persistence
-├── Makefile                 # build, build-arm, test, docker-* targets
+│       └── logger.go                # Global logrus logger
+├── .github/
+│   └── workflows/
+│       ├── ci.yml                   # Test on push / PR
+│       └── release.yml              # Build + publish on vX.Y.Z tag
+├── examples/
+│   ├── github-actions/              # Ready-to-use GitHub Actions workflows
+│   └── named-scripts/               # Example named scripts for the Pi
+├── deploy/
+│   ├── agent.service                # systemd unit file
+│   └── agent.env.example            # Template for /etc/raspideploy/agent.env
+├── Dockerfile.server                # Multi-stage build, TARGETARCH for multi-arch
+├── docker-compose.yml               # Server + named volume
+├── Makefile                         # build, build-arm*, test, docker-* targets
 ├── go.mod
 └── .gitignore
 ```
@@ -78,7 +101,7 @@ raspideploy/
 |---|---|---|---|
 | `--bind` / `-b` | `RASPIDEPLOY_BIND` | `:8080` | Listen address |
 | `--secret` / `-k` | `RASPIDEPLOY_SECRET` | — | **Required.** Shared auth secret |
-| `--data-dir` / `-d` | `RASPIDEPLOY_DATA_DIR` | `./data` | Directory for persistence (future use) |
+| `--agent-timeout` / `-t` | `RASPIDEPLOY_AGENT_TIMEOUT` | `90s` | Mark agents offline after this duration without a heartbeat |
 | `--debug` / `-D` | `RASPIDEPLOY_DEBUG` | `false` | Verbose logging |
 
 ### REST API
@@ -89,7 +112,7 @@ All routes except `/health` require `Authorization: Bearer <secret>`.
 
 | Method | Path | Auth | Description |
 |---|---|---|---|
-| `GET` | `/health` | No | Returns `{"status":"healthy"}` |
+| `GET` | `/health` | No | Returns `{"status":"healthy"}` — silent in logs (polled by Docker/load balancers) |
 
 #### Agents
 
@@ -104,17 +127,21 @@ All routes except `/health` require `Authorization: Bearer <secret>`.
 | Method | Path | Auth | Description |
 |---|---|---|---|
 | `POST` | `/api/v1/tasks` | Yes | Create a new task (called from CI/CD) |
-| `GET` | `/api/v1/tasks` | Yes | List all tasks (with optional `?agent_id=` / `?status=` filters) |
+| `GET` | `/api/v1/tasks` | Yes | List tasks (optional `?agent_id=` / `?status=` filters) |
 | `GET` | `/api/v1/tasks/{id}` | Yes | Get a single task by ID |
 | `POST` | `/api/v1/tasks/{id}/result` | Yes | Agent reports task progress or completion |
 
-### Storage (v1)
+### Storage
 
-An in-memory map protected by a `sync.RWMutex`. This is intentionally simple: the server is stateless enough that a restart only loses pending tasks. A file-backed or SQLite store can be added later without changing the API.
+An in-memory map protected by a `sync.RWMutex`. Intentionally simple: the server is stateless enough that a restart only loses pending tasks. A file-backed or SQLite store can be swapped in later without changing the API (the `store` interface is the boundary).
 
 ### Auth middleware
 
-A single `auth(next http.HandlerFunc) http.HandlerFunc` wrapper. It reads `Authorization`, strips the `Bearer ` prefix, and compares the token to the configured secret using `subtle.ConstantTimeCompare` to avoid timing attacks.
+`auth(next http.HandlerFunc) http.HandlerFunc` — reads `Authorization`, strips the `Bearer ` prefix, and compares the token using `crypto/subtle.ConstantTimeCompare`. Unauthorized requests are logged at WARN with the caller's IP before returning HTTP 401.
+
+### Stale agent detection
+
+A background goroutine (`staleSweep`) runs every `agentTimeout / 3` (minimum 2 s) and calls `store.markStaleAgents(agentTimeout)`. Any agent whose `LastHeartbeat` is older than the timeout is set to `status: "offline"` and a WARN is logged. When that agent next sends a heartbeat, it is logged at INFO as "agent back online".
 
 ---
 
@@ -129,21 +156,55 @@ A single `auth(next http.HandlerFunc) http.HandlerFunc` wrapper. It reads `Autho
 | `--secret` / `-k` | `RASPIDEPLOY_SECRET` | — | **Required.** Shared auth secret |
 | `--hostname` / `-n` | `HOSTNAME` | system hostname | Friendly display name |
 | `--interval` / `-i` | `RASPIDEPLOY_POLL_INTERVAL` | `30s` | How often to poll |
+| `--scripts-dir` / `-S` | `RASPIDEPLOY_SCRIPTS_DIR` | `/etc/raspideploy/scripts` | Directory of named scripts |
 | `--debug` / `-d` | `RASPIDEPLOY_DEBUG` | `false` | Verbose logging |
 
 ### Poll loop
 
+On startup the agent contacts the server **immediately** (before the first tick), so the server registers it as online without delay. Subsequent polls happen on the configured interval.
+
 ```
-every <interval>:
+on startup, then every <interval>:
   1. POST /agents/heartbeat          (register + keep-alive)
   2. GET  /agents/{id}/tasks         (fetch pending tasks)
   3. for each task:
-       a. POST /tasks/{id}/result    { status: "running" }
+       a. POST /tasks/{id}/result    { status: "running" }   ← before executing
        b. execute the task
        c. POST /tasks/{id}/result    { status: "completed|failed", output, error }
 ```
 
+Step 3a ensures the server shows `running` even if the agent crashes mid-execution, preventing the task from appearing stuck in `pending` forever.
+
 ### Task types
+
+#### `named_script` ★ recommended
+
+Runs a pre-installed script by name. No command content travels over the wire.
+
+Payload:
+```json
+{
+  "name":   "deploy-myapp",
+  "config": {
+    "ref":     "v1.2.3",
+    "env":     "production",
+    "restart": true
+  }
+}
+```
+
+The agent resolves `name` to `<scripts_dir>/deploy-myapp.sh` and runs it after validation (see Security Model above).
+
+**Environment variables injected into the script:**
+
+| Variable | Value |
+|---|---|
+| `RASPIDEPLOY_TASK_ID` | ID of this task |
+| `RASPIDEPLOY_AGENT_ID` | ID of this agent |
+| `RASPIDEPLOY_CONFIG` | Full `config` object as a JSON string |
+| `RASPIDEPLOY_CONFIG_<KEY>` | One var per top-level scalar in `config` (string / number / bool) |
+
+Scripts inherit the agent process environment (PATH, HOME, etc.) so standard tools work without explicit configuration.
 
 #### `deploy` — git clone or pull, then run commands
 
@@ -157,18 +218,15 @@ Payload:
 }
 ```
 
-Logic:
 - If `target_dir/.git` does not exist → `git clone --branch <ref> <repo_url> <target_dir>`
-- If it exists → `git fetch --tags origin` + `git checkout <ref>` + `git pull --ff-only`
-- Run each command with `bash -c <cmd>` inside `target_dir`, collecting stdout+stderr
+- If it exists → `git fetch --tags --prune origin` + `git checkout -f <ref>` + `git pull --ff-only` (best-effort; silently skipped for tags)
+- Each command is run with `bash -c <cmd>` inside `target_dir`; combined stdout+stderr is captured
 
 #### `script` — run an arbitrary shell script
 
 Payload:
 ```json
-{
-  "script": "apt-get update && apt-get upgrade -y"
-}
+{ "script": "apt-get update && apt-get upgrade -y" }
 ```
 
 Runs `bash -c <script>` in the agent's working directory.
@@ -177,9 +235,7 @@ Runs `bash -c <script>` in the agent's working directory.
 
 Payload:
 ```json
-{
-  "service": "myapp"
-}
+{ "service": "myapp" }
 ```
 
 Runs `systemctl restart <service>`.
@@ -193,56 +249,94 @@ pending  ──▶  running  ──▶  completed
                        ╰──▶  failed
 ```
 
-The transition `pending → running` is reported by the agent immediately before execution. This lets an operator watching the server know a task was picked up even if the agent crashes mid-execution.
+`pending → running` is reported by the agent immediately before execution so an operator can see the task was picked up even if the agent crashes mid-run.
+
+---
+
+## Logging conventions
+
+| Event | Level |
+|---|---|
+| Agent first registration | INFO |
+| Repeated heartbeat | DEBUG |
+| Agent back online (was offline) | INFO |
+| Agent marked offline (no heartbeat) | WARN |
+| Task created | INFO |
+| Tasks dispatched to agent (>0) | INFO |
+| No pending tasks for agent | DEBUG |
+| Task running / completed | INFO |
+| Task failed | WARN |
+| Unauthorized request (401) | WARN |
+| Method not allowed | WARN |
+| Bad request body | WARN |
+| Task not found | WARN |
+| Server start / shutdown | INFO |
+| `/health` endpoint | silent |
 
 ---
 
 ## Daemon setup on Raspberry Pi
 
-The agent binary is intended to run as a systemd service. A sample unit file will be provided:
+The agent binary runs as a systemd service. Configuration lives in `/etc/raspideploy/agent.env` (mode `600` — it contains the secret). Named scripts live in `/etc/raspideploy/scripts/` and must be executable.
 
 ```
-/etc/systemd/system/raspideploy-agent.service
+/etc/systemd/system/raspideploy-agent.service   ← unit file
+/etc/raspideploy/agent.env                       ← configuration (chmod 600)
+/etc/raspideploy/scripts/<name>.sh               ← named scripts (chmod +x)
 ```
-
-The service reads all configuration from environment variables via a `EnvironmentFile=/etc/raspideploy/agent.env` directive, so secrets are not on the command line.
 
 ---
 
 ## CI/CD Integration
 
-From any CI/CD pipeline, a deployment is triggered with a single `curl`:
+Trigger a deployment with a single `curl`. The recommended approach uses `named_script` so no raw commands travel over the wire:
 
 ```bash
-curl -s -X POST https://your-server/api/v1/tasks \
+curl -sf -X POST https://your-server/api/v1/tasks \
   -H "Authorization: Bearer $RASPIDEPLOY_SECRET" \
   -H "Content-Type: application/json" \
   -d '{
-    "type":     "deploy",
-    "node_id":  "raspi-living-room",
+    "type":     "named_script",
+    "agent_id": "raspi-living-room",
     "payload":  {
-      "repo_url":   "https://github.com/user/repo.git",
-      "ref":        "'$GITHUB_REF_NAME'",
-      "target_dir": "/opt/myapp",
-      "commands":   ["make install", "systemctl restart myapp"]
+      "name":   "deploy-myapp",
+      "config": {
+        "ref": "'$GITHUB_REF_NAME'",
+        "env": "production"
+      }
     }
   }'
 ```
 
-The secret is stored as a CI/CD secret variable (`RASPIDEPLOY_SECRET`). No other setup is required.
+See `examples/github-actions/` for ready-to-use workflow files.
 
 ---
 
-## Docker (Server)
+## Release pipeline (GitHub Actions)
 
-`Dockerfile.server` — multi-stage build:
-1. `golang:1.21-alpine` builder stage compiles the server binary
-2. `alpine:3.18` runtime stage, non-root user, exposes `:8080`
+Two workflows live in `.github/workflows/`:
 
-`docker-compose.yml` provides:
-- The server container with `RASPIDEPLOY_SECRET` from the host environment
-- A named volume mounted at `/data` for the data directory
-- A health check against `GET /health`
+| Workflow | Trigger | What it does |
+|---|---|---|
+| `ci.yml` | Push / PR | `go vet`, `go test -race`, smoke build |
+| `release.yml` | `vX.Y.Z` tag | Publishes agent binaries to GitHub Releases + server Docker image to `ghcr.io` |
+
+Agent binaries produced by the release workflow:
+
+| File | Target |
+|---|---|
+| `raspideploy-agent-linux-arm64` | Pi 3 / 4 / 5 (64-bit OS) |
+| `raspideploy-agent-linux-armv7` | Pi 2 / 3 (32-bit OS) |
+| `raspideploy-agent-linux-amd64` | x86-64 (testing / VMs) |
+
+### Docker (Server)
+
+`Dockerfile.server` uses a multi-stage build:
+
+1. `golang:1.22-alpine` builder — accepts `ARG TARGETARCH` from Docker Buildx so the Go cross-compiler is used natively (no QEMU slowness in the build stage)
+2. `alpine:3.19` runtime — non-root user, `wget`-based health check on `/health`, exposes `:8080`
+
+The release workflow builds and pushes a multi-arch image (`linux/amd64`, `linux/arm64`) to `ghcr.io` using Docker Buildx with registry-based layer caching.
 
 ---
 
@@ -251,25 +345,11 @@ The secret is stored as a CI/CD secret variable (`RASPIDEPLOY_SECRET`). No other
 | Target | Description |
 |---|---|
 | `make build` | Build server + agent for current platform |
+| `make build-server` | Build server only |
+| `make build-agent` | Build agent for current platform |
 | `make build-agent-arm64` | Cross-compile agent for Raspberry Pi (ARM64) |
 | `make build-agent-armv7` | Cross-compile agent for older Pi models (ARMv7) |
 | `make test` | Run unit tests |
 | `make docker-build` | Build the server Docker image |
 | `make docker-up` | Start server via docker-compose |
 | `make docker-down` | Stop server |
-
----
-
-## Implementation order
-
-1. **Models** — `internal/models/models.go` (Task, Agent, payloads, status constants)
-2. **Logger** — `internal/utils/logger.go`
-3. **Server store** — `internal/server/store.go` (in-memory, behind interface)
-4. **Server handlers + auth** — `internal/server/server.go` + `handlers.go`
-5. **Server entrypoint** — `cmd/server/main.go`
-6. **Agent client** — `internal/agent/client.go`
-7. **Agent executor** — `internal/agent/executor.go`
-8. **Agent entrypoint** — `cmd/agent/main.go`
-9. **Dockerfile + docker-compose**
-10. **Makefile**
-11. **Systemd unit file example**

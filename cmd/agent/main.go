@@ -39,8 +39,8 @@ func main() {
 			&cli.StringFlag{
 				Name:     "secret",
 				Aliases:  []string{"k"},
-				Usage:    "shared Bearer token secret",
-				EnvVars:  []string{"RASPIDEPLOY_SECRET"},
+				Usage:    "agent Bearer token secret",
+				EnvVars:  []string{"RASPIDEPLOY_AGENT_SECRET"},
 				Required: true,
 			},
 			&cli.StringFlag{
@@ -111,6 +111,9 @@ func run(c *cli.Context) error {
 		select {
 		case <-sigCh:
 			utils.Logger.Info("agent shutting down")
+			if err := client.Disconnect(); err != nil {
+				utils.Logger.Warnf("disconnect failed: %v", err)
+			}
 			return nil
 		case <-ticker.C:
 			poll(client, executor, agentID, hostname)

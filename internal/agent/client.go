@@ -97,6 +97,19 @@ func (c *Client) FetchTasks() ([]*models.Task, error) {
 	return tasks, nil
 }
 
+// Disconnect notifies the server that this agent is going offline.
+func (c *Client) Disconnect() error {
+	resp, err := c.do(http.MethodPost, "/api/v1/agents/"+c.agentID+"/disconnect", nil)
+	if err != nil {
+		return fmt.Errorf("disconnect: %w", err)
+	}
+	defer resp.Body.Close()
+	if err := checkStatus(resp); err != nil {
+		return fmt.Errorf("disconnect: %w", err)
+	}
+	return nil
+}
+
 // ReportResult sends a task status update or final result to the server.
 func (c *Client) ReportResult(taskID string, result models.TaskResultRequest) error {
 	resp, err := c.do(http.MethodPost, "/api/v1/tasks/"+taskID+"/result", result)

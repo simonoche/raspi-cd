@@ -11,6 +11,7 @@ type store interface {
 	upsertAgent(agent *models.Agent)
 	getAgent(id string) (*models.Agent, bool)
 	listAgents() []*models.Agent
+	setAgentOffline(id string) bool
 	// markStaleAgents sets status="offline" for agents whose last heartbeat
 	// is older than threshold. Returns the IDs of newly-offline agents.
 	markStaleAgents(threshold time.Duration) []string
@@ -55,6 +56,17 @@ func (s *memStore) listAgents() []*models.Agent {
 		out = append(out, a)
 	}
 	return out
+}
+
+func (s *memStore) setAgentOffline(id string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	a, ok := s.agents[id]
+	if !ok {
+		return false
+	}
+	a.Status = "offline"
+	return true
 }
 
 func (s *memStore) markStaleAgents(threshold time.Duration) []string {

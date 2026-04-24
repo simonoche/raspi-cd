@@ -2,14 +2,14 @@
 
 Deploy to Raspberry Pis from any CI/CD pipeline.
 
-**How it works:** a lightweight server sits on the public internet. Each Pi runs an agent that polls the server for tasks. Your CI/CD pipeline pushes a task to the server — the next time the agent polls, it picks it up and executes it locally (git clone/pull + shell commands).
+**How it works:** a lightweight server sits on the public internet. Each Pi runs an agent that polls the server for tasks. Your CI/CD pipeline pushes a task to the server — the next time the agent polls, it picks it up and executes it locally.
 
 No inbound ports are needed on the Pi. The agent connects outbound only.
 
 ```
 CI/CD pipeline  ──POST /api/v1/tasks──▶  Server (public)
                                               ▲
-                              Agent (Pi) polls│every 30s
+                 Agent (Pi) polls on startup, │then every 30s
 ```
 
 ---
@@ -76,6 +76,7 @@ curl https://your-server.example.com/health
 |----------|----------|---------|-------------|
 | `RASPIDEPLOY_SECRET` | Yes | — | Shared auth secret |
 | `RASPIDEPLOY_BIND` | No | `:8080` | Listen address |
+| `RASPIDEPLOY_AGENT_TIMEOUT` | No | `90s` | Mark agents offline after this duration without a heartbeat |
 | `RASPIDEPLOY_DEBUG` | No | `false` | Verbose logging |
 
 ### Expose the server publicly
@@ -123,6 +124,7 @@ RASPIDEPLOY_SERVER=https://your-server.example.com
 RASPIDEPLOY_AGENT_ID=raspi-living-room
 RASPIDEPLOY_SECRET=<your-secret>
 RASPIDEPLOY_POLL_INTERVAL=30s
+# RASPIDEPLOY_SCRIPTS_DIR=/etc/raspideploy/scripts
 EOF
 
 # Protect the file — it contains the secret
@@ -130,6 +132,17 @@ sudo chmod 600 /etc/raspideploy/agent.env
 ```
 
 `RASPIDEPLOY_AGENT_ID` is the unique name you will use when targeting this Pi from CI/CD. Use something descriptive (`raspi-living-room`, `raspi-garage`, etc.).
+
+### Agent environment variables
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `RASPIDEPLOY_SERVER` | Yes | — | Server base URL |
+| `RASPIDEPLOY_AGENT_ID` | Yes | — | Unique name for this Pi |
+| `RASPIDEPLOY_SECRET` | Yes | — | Shared auth secret |
+| `RASPIDEPLOY_POLL_INTERVAL` | No | `30s` | How often to poll |
+| `RASPIDEPLOY_SCRIPTS_DIR` | No | `/etc/raspideploy/scripts` | Directory of named scripts |
+| `RASPIDEPLOY_DEBUG` | No | `false` | Verbose logging |
 
 ### Install as a systemd service
 
@@ -147,13 +160,74 @@ sudo systemctl status raspideploy-agent
 sudo journalctl -u raspideploy-agent -f
 ```
 
-You should see a heartbeat log every 30 seconds.
+The agent contacts the server immediately on startup, then continues to poll every 30 seconds. You should see a successful heartbeat log within seconds of starting the service.
+
+### Set up named scripts
+
+Named scripts are the recommended way to deploy (see [Task types](#task-types) below). Create the scripts directory and add executable shell scripts to it:
+
+```bash
+sudo mkdir -p /etc/raspideploy/scripts
+
+sudo tee /etc/raspideploy/scripts/deploy-myapp.sh > /dev/null <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+
+REF="${RASPIDEPLOY_CONFIG_REF:-main}"
+TARGET_DIR="/opt/myapp"
+
+cd "$TARGET_DIR"
+git fetch --tags --prune origin
+git checkout -f "$REF"
+git pull --ff-only || true
+
+make build
+systemctl restart myapp
+echo "Deployed $REF successfully"
+EOF
+
+sudo chmod +x /etc/raspideploy/scripts/deploy-myapp.sh
+```
+
+Scripts receive task context as environment variables — no arguments needed:
+
+| Variable | Value |
+|----------|-------|
+| `RASPIDEPLOY_TASK_ID` | ID of this task |
+| `RASPIDEPLOY_AGENT_ID` | ID of this agent |
+| `RASPIDEPLOY_CONFIG` | Full `config` object as a JSON string |
+| `RASPIDEPLOY_CONFIG_<KEY>` | One var per top-level scalar in `config` |
+
+See [`examples/named-scripts/`](examples/named-scripts/) for a fully annotated example.
 
 ---
 
 ## 3. Trigger a Deployment from CI/CD
 
 ### Task types
+
+#### `named_script` — run a pre-installed script by name (recommended)
+
+The most secure option. CI/CD sends only a script name; the actual script lives on the Pi. No raw commands travel over the wire.
+
+```json
+{
+  "type":     "named_script",
+  "agent_id": "raspi-living-room",
+  "payload": {
+    "name": "deploy-myapp",
+    "config": {
+      "ref": "v1.2.3",
+      "env": "production"
+    }
+  }
+}
+```
+
+The agent resolves `name` to `/etc/raspideploy/scripts/deploy-myapp.sh` and validates it before executing:
+- Name must match `[a-zA-Z0-9_-]+` (no path traversal)
+- Script must exist in the scripts directory
+- Script must have the execute bit set (`chmod +x`)
 
 #### `deploy` — clone or update a git repository, then run commands
 
@@ -201,7 +275,9 @@ If `target_dir` does not contain a git repository, a fresh clone is performed. O
 
 ### GitHub Actions
 
-Add `RASPIDEPLOY_SECRET` and `RASPIDEPLOY_SERVER` as repository secrets, then add a deployment step:
+Add `RASPIDEPLOY_SECRET` and `RASPIDEPLOY_SERVER` as repository secrets. A ready-to-use workflow is available at [`examples/github-actions/deploy-named-script.yml`](examples/github-actions/deploy-named-script.yml).
+
+Minimal example using `named_script`:
 
 ```yaml
 - name: Deploy to Raspberry Pi
@@ -210,13 +286,14 @@ Add `RASPIDEPLOY_SECRET` and `RASPIDEPLOY_SERVER` as repository secrets, then ad
       -H "Authorization: Bearer $RASPIDEPLOY_SECRET" \
       -H "Content-Type: application/json" \
       -d '{
-        "type": "deploy",
+        "type":     "named_script",
         "agent_id": "raspi-living-room",
         "payload": {
-          "repo_url":   "https://github.com/${{ github.repository }}.git",
-          "ref":        "${{ github.ref_name }}",
-          "target_dir": "/opt/myapp",
-          "commands":   ["make install", "systemctl restart myapp"]
+          "name": "deploy-myapp",
+          "config": {
+            "ref": "${{ github.ref_name }}",
+            "env": "production"
+          }
         }
       }'
   env:
@@ -237,13 +314,14 @@ deploy:
         -H "Authorization: Bearer $RASPIDEPLOY_SECRET" \
         -H "Content-Type: application/json" \
         -d '{
-          "type": "deploy",
+          "type":     "named_script",
           "agent_id": "raspi-living-room",
           "payload": {
-            "repo_url":   "'$CI_REPOSITORY_URL'",
-            "ref":        "'$CI_COMMIT_REF_NAME'",
-            "target_dir": "/opt/myapp",
-            "commands":   ["make install", "systemctl restart myapp"]
+            "name": "deploy-myapp",
+            "config": {
+              "ref": "'$CI_COMMIT_REF_NAME'",
+              "env": "production"
+            }
           }
         }'
   only:
@@ -257,13 +335,14 @@ curl -X POST https://your-server.example.com/api/v1/tasks \
   -H "Authorization: Bearer $RASPIDEPLOY_SECRET" \
   -H "Content-Type: application/json" \
   -d '{
-    "type": "deploy",
+    "type":     "named_script",
     "agent_id": "raspi-living-room",
     "payload": {
-      "repo_url":   "https://github.com/you/myapp.git",
-      "ref":        "v1.2.3",
-      "target_dir": "/opt/myapp",
-      "commands":   ["make install", "systemctl restart myapp"]
+      "name": "deploy-myapp",
+      "config": {
+        "ref": "v1.2.3",
+        "env": "production"
+      }
     }
   }'
 ```
