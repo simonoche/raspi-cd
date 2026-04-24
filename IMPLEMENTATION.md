@@ -1,8 +1,8 @@
-# RaspiDeploy — Implementation Reference
+# RasPiCD — Implementation Reference
 
 ## Overview
 
-RaspiDeploy is a lightweight remote-deployment system for Raspberry Pis that sit behind a NAT (no public IP, no exposed ports). It consists of two binaries:
+RasPiCD is a lightweight remote-deployment system for Raspberry Pis that sit behind a NAT (no public IP, no exposed ports). It consists of two binaries:
 
 - **Server** — a publicly accessible REST API. CI/CD pipelines push deployment tasks to it. Runs in Docker.
 - **Agent** — a daemon installed on each Raspberry Pi. It polls the server, picks up tasks, and executes them locally. No inbound connectivity required.

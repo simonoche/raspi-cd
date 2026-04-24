@@ -14,7 +14,7 @@ import (
 	"raspicd/internal/utils"
 )
 
-// Client communicates with the RaspiDeploy server.
+// Client communicates with the RasPiCD server.
 type Client struct {
 	serverURL  string
 	agentID    string

@@ -1,5 +1,5 @@
 [Unit]
-Description=RaspiDeploy Agent
+Description=RasPiCD Agent
 # Wait for the network before starting — important on Pi which may
 # take a few seconds to get an IP after boot.
 After=network-online.target

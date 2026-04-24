@@ -22,7 +22,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Send deploy task to RaspiDeploy
+      - name: Send deploy task to RasPiCD
         run: |
           curl -sf -X POST "$RASPIDEPLOY_SERVER/api/v1/tasks" \
             -H "Authorization: Bearer $RASPIDEPLOY_SECRET" \

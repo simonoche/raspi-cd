@@ -20,7 +20,7 @@ var version = "dev"
 func main() {
 	app := &cli.App{
 		Name:    "raspicd-server",
-		Usage:   "Central control server for RaspiDeploy",
+		Usage:   "Central control server for RasPiCD",
 		Version: version,
 		Flags: []cli.Flag{
 			&cli.StringFlag{
@@ -70,7 +70,7 @@ func run(c *cli.Context) error {
 	if c.Bool("debug") {
 		utils.SetDebugLevel()
 	}
-	utils.Logger.Infof("RaspiDeploy Server %s", version)
+	utils.Logger.Infof("RasPiCD Server %s", version)
 
 	srv := server.New(c.String("bind"), c.String("secret"), c.String("agent-secret"), version, c.Duration("agent-timeout"), static.FS)
 

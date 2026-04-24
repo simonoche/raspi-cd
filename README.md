@@ -28,7 +28,7 @@ CI/CD pipeline  ──POST /api/v1/tasks──▶  Server (public)
 
 ### Generate secrets
 
-RaspiDeploy uses two separate secrets so a compromised Pi cannot be used to create new tasks.
+RasPiCD uses two separate secrets so a compromised Pi cannot be used to create new tasks.
 
 ```bash
 openssl rand -hex 32   # CI/CD secret  → RASPIDEPLOY_SECRET
@@ -163,7 +163,7 @@ Systemd keeps the agent running across reboots and restarts it automatically if 
 ```bash
 sudo tee /etc/systemd/system/raspicd-agent.service > /dev/null <<'EOF'
 [Unit]
-Description=RaspiDeploy Agent
+Description=RasPiCD Agent
 # Wait for the network before starting — important on Pi which may
 # take a few seconds to get an IP after boot.
 After=network-online.target
@@ -206,7 +206,7 @@ sudo systemctl status raspicd-agent
 Expected output:
 
 ```
-● raspicd-agent.service - RaspiDeploy Agent
+● raspicd-agent.service - RasPiCD Agent
      Loaded: loaded (/etc/systemd/system/raspicd-agent.service; enabled)
      Active: active (running) since ...
 ```
