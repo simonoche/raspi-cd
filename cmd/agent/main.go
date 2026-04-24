@@ -2,7 +2,7 @@ package main
 
 import (
 	"fmt"
-	"math/rand/v2"
+	"math/rand"
 	"os"
 	"os/signal"
 	"syscall"
@@ -144,13 +144,17 @@ loop:
 type backoff struct {
 	current time.Duration
 	max     time.Duration
+	rng     *rand.Rand
 }
 
 func newBackoff(max time.Duration) *backoff {
 	if max < time.Second {
 		max = time.Second
 	}
-	return &backoff{max: max}
+	return &backoff{
+		max: max,
+		rng: rand.New(rand.NewSource(time.Now().UnixNano())),
+	}
 }
 
 func (b *backoff) next() time.Duration {
@@ -165,7 +169,7 @@ func (b *backoff) next() time.Duration {
 	}
 	// ±25% jitter to spread reconnect storms across multiple agents.
 	quarter := int64(b.current / 4)
-	jitter := time.Duration(rand.Int64N(quarter*2+1) - quarter)
+	jitter := time.Duration(b.rng.Int63n(quarter*2+1) - quarter)
 	return b.current + jitter
 }
 
