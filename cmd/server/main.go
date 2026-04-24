@@ -1,0 +1,72 @@
+package main
+
+import (
+	"fmt"
+	"os"
+	"os/signal"
+	"syscall"
+
+	"github.com/urfave/cli/v2"
+
+	"raspideploy/internal/server"
+	"raspideploy/internal/utils"
+)
+
+var version = "0.1.0"
+
+func main() {
+	app := &cli.App{
+		Name:    "raspideploy-server",
+		Usage:   "Central control server for RaspiDeploy",
+		Version: version,
+		Flags: []cli.Flag{
+			&cli.StringFlag{
+				Name:    "bind",
+				Aliases: []string{"b"},
+				Usage:   "listen address",
+				Value:   ":8080",
+				EnvVars: []string{"RASPIDEPLOY_BIND"},
+			},
+			&cli.StringFlag{
+				Name:     "secret",
+				Aliases:  []string{"k"},
+				Usage:    "shared Bearer token secret",
+				EnvVars:  []string{"RASPIDEPLOY_SECRET"},
+				Required: true,
+			},
+			&cli.BoolFlag{
+				Name:    "debug",
+				Aliases: []string{"D"},
+				Usage:   "verbose logging",
+				EnvVars: []string{"RASPIDEPLOY_DEBUG"},
+			},
+		},
+		Action: run,
+	}
+	if err := app.Run(os.Args); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+}
+
+func run(c *cli.Context) error {
+	if c.Bool("debug") {
+		utils.SetDebugLevel()
+	}
+	utils.Logger.Infof("RaspiDeploy server v%s", version)
+
+	srv := server.New(c.String("bind"), c.String("secret"))
+
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+
+	go func() {
+		if err := srv.Start(); err != nil {
+			utils.Logger.Errorf("server stopped: %v", err)
+		}
+	}()
+
+	<-sigCh
+	utils.Logger.Info("shutting down")
+	return srv.Stop()
+}

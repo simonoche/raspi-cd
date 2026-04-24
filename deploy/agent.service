@@ -1,0 +1,15 @@
+[Unit]
+Description=RaspiDeploy Agent
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=pi
+EnvironmentFile=/etc/raspideploy/agent.env
+ExecStart=/usr/local/bin/raspideploy-agent
+Restart=on-failure
+RestartSec=10s
+
+[Install]
+WantedBy=multi-user.target

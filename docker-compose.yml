@@ -1,0 +1,20 @@
+services:
+  raspideploy-server:
+    build:
+      context: .
+      dockerfile: Dockerfile.server
+    image: raspideploy-server:latest
+    container_name: raspideploy-server
+    restart: unless-stopped
+    environment:
+      RASPIDEPLOY_BIND: ":8080"
+      RASPIDEPLOY_SECRET: "${RASPIDEPLOY_SECRET}"
+      RASPIDEPLOY_DEBUG: "${RASPIDEPLOY_DEBUG:-false}"
+    ports:
+      - "8080:8080"
+    volumes:
+      - raspideploy-data:/data
+
+volumes:
+  raspideploy-data:
+    driver: local
