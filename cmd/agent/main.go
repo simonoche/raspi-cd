@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"math/rand/v2"
 	"os"
 	"os/signal"
 	"syscall"
@@ -53,8 +54,8 @@ func main() {
 			&cli.DurationFlag{
 				Name:    "interval",
 				Aliases: []string{"i"},
-				Usage:   "retry delay after a failed server connection",
-				Value:   10 * time.Second,
+				Usage:   "maximum retry delay after a failed server connection (exponential backoff from 1s up to this value)",
+				Value:   60 * time.Second,
 				EnvVars: []string{"RASPIDEPLOY_POLL_INTERVAL"},
 			},
 			&cli.StringFlag{
@@ -86,11 +87,11 @@ func run(c *cli.Context) error {
 
 	agentID := c.String("agent-id")
 	hostname := c.String("hostname")
-	interval := c.Duration("interval")
+	maxRetry := c.Duration("interval")
 	scriptsDir := c.String("scripts-dir")
 
-	utils.Logger.Infof("RaspiDeploy agent v%s  id=%s  server=%s  interval=%s  scripts=%s",
-		version, agentID, c.String("server"), interval, scriptsDir)
+	utils.Logger.Infof("RaspiDeploy agent v%s  id=%s  server=%s  max-retry=%s  scripts=%s",
+		version, agentID, c.String("server"), maxRetry, scriptsDir)
 
 	client := agent.NewClient(c.String("server"), agentID, c.String("secret"))
 	executor := agent.NewExecutor(agentID, scriptsDir)
@@ -100,32 +101,76 @@ func run(c *cli.Context) error {
 
 	utils.Logger.Infof("connecting to server ...")
 
+	bo := newBackoff(maxRetry)
+	fails := 0
+
+loop:
 	for {
 		select {
 		case <-sigCh:
-			utils.Logger.Info("agent shutting down")
-			if err := client.Disconnect(); err != nil {
-				utils.Logger.Warnf("disconnect failed: %v", err)
-			}
-			return nil
+			break loop
 		default:
 		}
 
-		if !poll(client, executor, agentID, hostname) {
-			// Back off before retrying so we don't hammer a down server.
-			select {
-			case <-sigCh:
-				utils.Logger.Info("agent shutting down")
-				if err := client.Disconnect(); err != nil {
-					utils.Logger.Warnf("disconnect failed: %v", err)
-				}
-				return nil
-			case <-time.After(interval):
+		if poll(client, executor, agentID, hostname) {
+			if fails > 0 {
+				utils.Logger.Infof("connection restored after %d failure(s)", fails)
+				fails = 0
 			}
+			bo.reset()
+			continue
 		}
-		// On success the server already held the connection for ~30s, so
-		// we reconnect immediately without any extra sleep.
+
+		fails++
+		delay := bo.next()
+		utils.Logger.Warnf("connection failed (attempt %d), retrying in %s ...", fails, delay.Round(time.Millisecond))
+
+		select {
+		case <-sigCh:
+			break loop
+		case <-time.After(delay):
+		}
 	}
+
+	utils.Logger.Info("agent shutting down")
+	if err := client.Disconnect(); err != nil {
+		utils.Logger.Warnf("disconnect failed: %v", err)
+	}
+	return nil
+}
+
+// backoff implements exponential backoff with ±25% jitter.
+// Delays follow the sequence 1s, 2s, 4s, ... capped at max.
+type backoff struct {
+	current time.Duration
+	max     time.Duration
+}
+
+func newBackoff(max time.Duration) *backoff {
+	if max < time.Second {
+		max = time.Second
+	}
+	return &backoff{max: max}
+}
+
+func (b *backoff) next() time.Duration {
+	const base = time.Second
+	if b.current < base {
+		b.current = base
+	} else {
+		b.current *= 2
+		if b.current > b.max {
+			b.current = b.max
+		}
+	}
+	// ±25% jitter to spread reconnect storms across multiple agents.
+	quarter := int64(b.current / 4)
+	jitter := time.Duration(rand.Int64N(quarter*2+1) - quarter)
+	return b.current + jitter
+}
+
+func (b *backoff) reset() {
+	b.current = 0
 }
 
 // poll sends a heartbeat, fetches pending tasks (long-polling), and executes
