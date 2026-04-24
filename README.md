@@ -1,4 +1,4 @@
-# RaspiDeploy
+# RasPiCD
 
 Deploy to Raspberry Pis from any CI/CD pipeline.
 
@@ -134,7 +134,7 @@ RASPIDEPLOY_SERVER=https://your-server.example.com
 RASPIDEPLOY_AGENT_ID=raspi-living-room
 RASPIDEPLOY_AGENT_SECRET=<your-agent-secret>
 # RASPIDEPLOY_SCRIPTS_DIR=/etc/raspideploy/scripts
-# RASPIDEPLOY_POLL_INTERVAL=10s   # retry delay on connection error (default: 10s)
+# RASPIDEPLOY_POLL_INTERVAL=60s   # max retry delay – exponential backoff (default: 60s)
 EOF
 
 # Protect the file — it contains the secret
@@ -510,6 +510,19 @@ Endpoints are split by which secret they require.
 | `GET` | `/api/v1/tasks` | List tasks (`?agent_id=`, `?status=`) |
 | `GET` | `/api/v1/tasks/{id}` | Get a single task |
 
+### Response headers
+
+Every response from the server includes:
+
+| Header | Example | Description |
+|--------|---------|-------------|
+| `X-Raspideploy-Version` | `v1.2.3` | Server binary version — useful for verifying which build is running |
+
+```bash
+curl -sI https://your-server.example.com/health
+# X-Raspideploy-Version: v1.2.3
+```
+
 ### Task statuses
 
 | Status | Meaning |
@@ -535,3 +548,17 @@ make docker-build       # build server Docker image
 ```
 
 Requires Go 1.22+.
+
+### Versioning
+
+The version string is injected at link time from the nearest git tag:
+
+| Build command | Version value |
+|---------------|--------------|
+| `make build` on a tagged commit (`v1.2.3`) | `v1.2.3` |
+| `make build` after additional commits | `v1.2.3-5-gabcdef` |
+| `make build` with uncommitted changes | `v1.2.3-dirty` |
+| `go build ./...` (no Makefile) | `dev` |
+| `make build VERSION=v9.9.9` | `v9.9.9` (manual override) |
+
+The version appears in startup logs and is exposed on every HTTP response via the `X-Raspideploy-Version` header.

@@ -147,7 +147,7 @@ func run(c *cli.Context) error {
 		}
 	}
 
-	utils.Logger.Info("agent shutting down")
+	utils.Logger.Info("Agent shutting down")
 	// Use a fresh context for disconnect — the main ctx is already cancelled.
 	disconnectCtx, disconnectCancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer disconnectCancel()

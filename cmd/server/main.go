@@ -12,6 +12,7 @@ import (
 
 	"raspideploy/internal/server"
 	"raspideploy/internal/utils"
+	"raspideploy/static"
 )
 
 var version = "dev"
@@ -71,7 +72,7 @@ func run(c *cli.Context) error {
 	}
 	utils.Logger.Infof("RaspiDeploy Server %s", version)
 
-	srv := server.New(c.String("bind"), c.String("secret"), c.String("agent-secret"), version, c.Duration("agent-timeout"))
+	srv := server.New(c.String("bind"), c.String("secret"), c.String("agent-secret"), version, c.Duration("agent-timeout"), static.FS)
 
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)

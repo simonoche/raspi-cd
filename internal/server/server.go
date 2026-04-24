@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"crypto/subtle"
+	"io/fs"
 	"net/http"
 	"strings"
 	"time"
@@ -17,6 +18,7 @@ type Server struct {
 	ciSecret     string // used by CI/CD pipelines to create/read tasks
 	agentSecret  string // used by agents to heartbeat, fetch tasks, and report results
 	agentTimeout time.Duration
+	staticFS     fs.FS
 	store        store
 	notifier     *notifier
 	router       *http.ServeMux
@@ -25,13 +27,14 @@ type Server struct {
 }
 
 // New creates and configures a Server.
-func New(bindAddr, ciSecret, agentSecret, version string, agentTimeout time.Duration) *Server {
+func New(bindAddr, ciSecret, agentSecret, version string, agentTimeout time.Duration, staticFS fs.FS) *Server {
 	s := &Server{
 		bindAddr:     bindAddr,
 		version:      version,
 		ciSecret:     ciSecret,
 		agentSecret:  agentSecret,
 		agentTimeout: agentTimeout,
+		staticFS:     staticFS,
 		store:        newMemStore(),
 		notifier:     newNotifier(),
 		router:       http.NewServeMux(),
@@ -91,6 +94,7 @@ func (s *Server) staleSweep(ctx context.Context) {
 
 func (s *Server) routes() {
 	// Unauthenticated.
+	s.router.HandleFunc("/", s.handleIndex)
 	s.router.HandleFunc("/health", s.handleHealth)
 
 	// Agent-facing (agent secret).

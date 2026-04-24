@@ -14,6 +14,16 @@ import (
 	"raspideploy/internal/utils"
 )
 
+// ---- index -----------------------------------------------------------------
+
+func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Path != "/" {
+		http.NotFound(w, r)
+		return
+	}
+	http.ServeFileFS(w, r, s.staticFS, "index.html")
+}
+
 // ---- helpers ---------------------------------------------------------------
 
 func writeJSON(w http.ResponseWriter, code int, v interface{}) {
