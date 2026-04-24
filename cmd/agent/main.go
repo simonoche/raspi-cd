@@ -91,7 +91,7 @@ func run(c *cli.Context) error {
 	maxRetry := c.Duration("interval")
 	scriptsDir := c.String("scripts-dir")
 
-	utils.Logger.Infof("RaspiDeploy agent v%s  id=%s  server=%s  max-retry=%s  scripts=%s",
+	utils.Logger.Infof("RaspiDeploy Agent %s  id=%s  server=%s  max-retry=%s  scripts=%s",
 		version, agentID, c.String("server"), maxRetry, scriptsDir)
 
 	client := agent.NewClient(c.String("server"), agentID, c.String("secret"))

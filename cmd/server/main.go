@@ -69,7 +69,7 @@ func run(c *cli.Context) error {
 	if c.Bool("debug") {
 		utils.SetDebugLevel()
 	}
-	utils.Logger.Infof("RaspiDeploy server v%s", version)
+	utils.Logger.Infof("RaspiDeploy Server %s", version)
 
 	srv := server.New(c.String("bind"), c.String("secret"), c.String("agent-secret"), version, c.Duration("agent-timeout"))
 
