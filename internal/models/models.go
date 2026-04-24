@@ -60,6 +60,19 @@ type CreateTaskRequest struct {
 	Payload map[string]interface{} `json:"payload"`
 }
 
+// BroadcastTaskRequest is the body of POST /api/v1/tasks/broadcast.
+// It creates one task per online agent with the same type and payload.
+type BroadcastTaskRequest struct {
+	Type    TaskType               `json:"type"`
+	Payload map[string]interface{} `json:"payload"`
+}
+
+// BroadcastTaskItem is one entry in the response of POST /api/v1/tasks/broadcast.
+type BroadcastTaskItem struct {
+	AgentID string `json:"agent_id"`
+	TaskID  string `json:"task_id"`
+}
+
 // TaskResultRequest is the body of POST /api/v1/tasks/{id}/result.
 type TaskResultRequest struct {
 	AgentID    string     `json:"agent_id"`

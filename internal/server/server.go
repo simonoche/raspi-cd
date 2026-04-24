@@ -97,6 +97,7 @@ func (s *Server) routes() {
 
 	// CI/CD and admin facing (CI secret).
 	s.router.HandleFunc("/api/v1/agents", s.authCI(s.handleAgents))
+	s.router.HandleFunc("/api/v1/tasks/broadcast", s.authCI(s.handleBroadcastTask))
 	s.router.HandleFunc("/api/v1/tasks", s.authCI(s.handleTasks))
 	s.router.HandleFunc("/api/v1/tasks/{id}", s.authCI(s.handleTask))
 }

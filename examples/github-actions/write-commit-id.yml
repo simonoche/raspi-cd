@@ -1,0 +1,85 @@
+# Write the current commit SHA to /opt/commitid.txt on every online agent.
+#
+# Uses POST /api/v1/tasks/broadcast — the server fans out one task per online
+# agent and returns all task IDs. The workflow then polls until every task
+# completes (or fails).
+#
+# Required repository secrets:
+#   RASPIDEPLOY_SERVER  — e.g. https://deploy.example.com
+#   RASPIDEPLOY_SECRET  — CI/CD Bearer token secret
+
+name: Write commit ID
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  RASPIDEPLOY_SERVER: ${{ secrets.RASPIDEPLOY_SERVER }}
+  RASPIDEPLOY_SECRET: ${{ secrets.RASPIDEPLOY_SECRET }}
+  POLL_INTERVAL: 10   # seconds between status checks
+  TIMEOUT_STEPS: 18   # 18 × 10s = 3 minutes
+
+jobs:
+  write-commit-id:
+    name: Write commit ID to all online agents
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Broadcast script task
+        id: dispatch
+        run: |
+          RESPONSE=$(curl -sf -X POST "$RASPIDEPLOY_SERVER/api/v1/tasks/broadcast" \
+            -H "Authorization: Bearer $RASPIDEPLOY_SECRET" \
+            -H "Content-Type: application/json" \
+            -d '{
+              "type": "script",
+              "payload": {
+                "script": "echo ${{ github.sha }} > /opt/commitid.txt && echo Written ${{ github.sha }} to /opt/commitid.txt"
+              }
+            }')
+
+          echo "Broadcast response: $RESPONSE"
+          # Extract task IDs as a space-separated list for the next step.
+          TASK_IDS=$(echo "$RESPONSE" | jq -r '.[].task_id' | tr '\n' ' ')
+          echo "task_ids=$TASK_IDS" >> "$GITHUB_OUTPUT"
+
+      - name: Wait for all tasks to complete
+        run: |
+          FAILED=0
+
+          for TASK_ID in ${{ steps.dispatch.outputs.task_ids }}; do
+            echo "--- Polling task $TASK_ID ---"
+
+            for i in $(seq 1 "$TIMEOUT_STEPS"); do
+              TASK=$(curl -sf "$RASPIDEPLOY_SERVER/api/v1/tasks/$TASK_ID" \
+                -H "Authorization: Bearer $RASPIDEPLOY_SECRET")
+
+              STATUS=$(echo "$TASK" | jq -r .status)
+              AGENT=$(echo "$TASK"  | jq -r .agent_id)
+              echo "[$i/$TIMEOUT_STEPS] $AGENT — $STATUS"
+
+              if [ "$STATUS" = "completed" ]; then
+                echo "$TASK" | jq -r .output
+                break
+              fi
+
+              if [ "$STATUS" = "failed" ]; then
+                echo "FAILED on $AGENT"
+                echo "$TASK" | jq -r .error
+                echo "$TASK" | jq -r .output
+                FAILED=1
+                break
+              fi
+
+              if [ "$i" = "$TIMEOUT_STEPS" ]; then
+                echo "Timed out waiting for task $TASK_ID on $AGENT"
+                FAILED=1
+              fi
+
+              sleep "$POLL_INTERVAL"
+            done
+          done
+
+          exit $FAILED

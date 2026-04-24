@@ -136,6 +136,49 @@ func (s *Server) handleAgentTasks(w http.ResponseWriter, r *http.Request) {
 
 // ---- /api/v1/tasks ---------------------------------------------------------
 
+// handleBroadcastTask serves POST /api/v1/tasks/broadcast.
+// It creates one pending task per online agent and returns all task IDs.
+func (s *Server) handleBroadcastTask(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		methodNotAllowed(w, r)
+		return
+	}
+	var req models.BroadcastTaskRequest
+	if err := readJSON(r, &req); err != nil || req.Type == "" {
+		utils.Logger.Warnf("broadcast task: invalid request body from %s", r.RemoteAddr)
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	online := make([]*models.Agent, 0)
+	for _, a := range s.store.listAgents() {
+		if a.Status == "online" {
+			online = append(online, a)
+		}
+	}
+	if len(online) == 0 {
+		http.Error(w, "no online agents", http.StatusConflict)
+		return
+	}
+
+	results := make([]models.BroadcastTaskItem, 0, len(online))
+	for _, a := range online {
+		task := &models.Task{
+			ID:        newID(),
+			Type:      req.Type,
+			Status:    models.TaskStatusPending,
+			AgentID:   a.ID,
+			Payload:   req.Payload,
+			CreatedAt: time.Now(),
+			UpdatedAt: time.Now(),
+		}
+		s.store.createTask(task)
+		results = append(results, models.BroadcastTaskItem{AgentID: a.ID, TaskID: task.ID})
+	}
+	utils.Logger.Infof("broadcast task (type=%s) created for %d agent(s)", req.Type, len(results))
+	writeJSON(w, http.StatusCreated, results)
+}
+
 // handleTasks serves GET and POST /api/v1/tasks.
 func (s *Server) handleTasks(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {

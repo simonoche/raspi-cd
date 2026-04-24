@@ -45,6 +45,7 @@ services:
     restart: unless-stopped
     environment:
       RASPIDEPLOY_SECRET: "${RASPIDEPLOY_SECRET}"
+      RASPIDEPLOY_AGENT_SECRET: "${RASPIDEPLOY_AGENT_SECRET}"
     ports:
       - "8080:8080"
     volumes:
@@ -57,7 +58,8 @@ volumes:
 Then start it:
 
 ```bash
-export RASPIDEPLOY_SECRET=<your-secret>
+export RASPIDEPLOY_SECRET=<your-ci-secret>
+export RASPIDEPLOY_AGENT_SECRET=<your-agent-secret>
 docker compose up -d
 ```
 
@@ -74,7 +76,8 @@ curl https://your-server.example.com/health
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
-| `RASPIDEPLOY_SECRET` | Yes | — | Shared auth secret |
+| `RASPIDEPLOY_SECRET` | Yes | — | CI/CD Bearer token secret (used by pipelines to create tasks) |
+| `RASPIDEPLOY_AGENT_SECRET` | Yes | — | Agent Bearer token secret (used by agents to poll and report) |
 | `RASPIDEPLOY_BIND` | No | `:8080` | Listen address |
 | `RASPIDEPLOY_AGENT_TIMEOUT` | No | `90s` | Mark agents offline after this duration without a heartbeat |
 | `RASPIDEPLOY_DEBUG` | No | `false` | Verbose logging |
@@ -122,7 +125,7 @@ sudo mkdir -p /etc/raspideploy
 sudo tee /etc/raspideploy/agent.env > /dev/null <<EOF
 RASPIDEPLOY_SERVER=https://your-server.example.com
 RASPIDEPLOY_AGENT_ID=raspi-living-room
-RASPIDEPLOY_SECRET=<your-secret>
+RASPIDEPLOY_AGENT_SECRET=<your-agent-secret>
 RASPIDEPLOY_POLL_INTERVAL=30s
 # RASPIDEPLOY_SCRIPTS_DIR=/etc/raspideploy/scripts
 EOF
@@ -139,7 +142,7 @@ sudo chmod 600 /etc/raspideploy/agent.env
 |----------|----------|---------|-------------|
 | `RASPIDEPLOY_SERVER` | Yes | — | Server base URL |
 | `RASPIDEPLOY_AGENT_ID` | Yes | — | Unique name for this Pi |
-| `RASPIDEPLOY_SECRET` | Yes | — | Shared auth secret |
+| `RASPIDEPLOY_AGENT_SECRET` | Yes | — | Agent Bearer token secret |
 | `RASPIDEPLOY_POLL_INTERVAL` | No | `30s` | How often to poll |
 | `RASPIDEPLOY_SCRIPTS_DIR` | No | `/etc/raspideploy/scripts` | Directory of named scripts |
 | `RASPIDEPLOY_DEBUG` | No | `false` | Verbose logging |
