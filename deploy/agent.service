@@ -1,15 +1,22 @@
 [Unit]
 Description=RaspiDeploy Agent
+# Wait for the network before starting — important on Pi which may
+# take a few seconds to get an IP after boot.
 After=network-online.target
 Wants=network-online.target
 
 [Service]
 Type=simple
+# Change to the user that should run the agent.
+# On Raspberry Pi OS the default user is "pi".
 User=pi
 EnvironmentFile=/etc/raspideploy/agent.env
 ExecStart=/usr/local/bin/raspideploy-agent
+# Restart on unexpected exit (crashes, OOM kills).
+# The agent handles server reconnects internally with exponential backoff,
+# so this covers only hard failures.
 Restart=on-failure
-RestartSec=10s
+RestartSec=5s
 
 [Install]
 WantedBy=multi-user.target

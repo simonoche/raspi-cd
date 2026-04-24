@@ -150,27 +150,90 @@ sudo chmod 600 /etc/raspideploy/agent.env
 | `RASPIDEPLOY_SERVER` | Yes | — | Server base URL |
 | `RASPIDEPLOY_AGENT_ID` | Yes | — | Unique name for this Pi |
 | `RASPIDEPLOY_AGENT_SECRET` | Yes | — | Agent Bearer token secret |
-| `RASPIDEPLOY_POLL_INTERVAL` | No | `10s` | Retry delay after a failed server connection |
+| `RASPIDEPLOY_POLL_INTERVAL` | No | `60s` | Maximum retry delay (exponential backoff: 1s → 2s → 4s → … → this value) |
 | `RASPIDEPLOY_SCRIPTS_DIR` | No | `/etc/raspideploy/scripts` | Directory of named scripts |
 | `RASPIDEPLOY_DEBUG` | No | `false` | Verbose logging |
 
-### Install as a systemd service
+### Run as a systemd daemon
+
+Systemd keeps the agent running across reboots and restarts it automatically if it crashes.
+
+#### 1. Create the unit file
 
 ```bash
-sudo cp deploy/agent.service /etc/systemd/system/raspideploy-agent.service
+sudo tee /etc/systemd/system/raspideploy-agent.service > /dev/null <<'EOF'
+[Unit]
+Description=RaspiDeploy Agent
+# Wait for the network before starting — important on Pi which may
+# take a few seconds to get an IP after boot.
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# Change to the user that should run the agent.
+# On Raspberry Pi OS the default user is "pi".
+User=pi
+EnvironmentFile=/etc/raspideploy/agent.env
+ExecStart=/usr/local/bin/raspideploy-agent
+# Restart on unexpected exit (crashes, OOM kills).
+# The agent handles server reconnects internally with exponential backoff,
+# so this covers only hard failures.
+Restart=on-failure
+RestartSec=5s
+
+[Install]
+WantedBy=multi-user.target
+EOF
+```
+
+> The unit file is also available at [`deploy/agent.service`](deploy/agent.service) in this repository.
+
+#### 2. Enable and start
+
+```bash
 sudo systemctl daemon-reload
-sudo systemctl enable raspideploy-agent
+sudo systemctl enable raspideploy-agent   # start automatically on boot
 sudo systemctl start raspideploy-agent
 ```
 
-**Check it is running:**
+#### 3. Verify it is running
 
 ```bash
 sudo systemctl status raspideploy-agent
-sudo journalctl -u raspideploy-agent -f
 ```
 
-The agent connects on startup and maintains a persistent long-poll connection — tasks are delivered in milliseconds. If the connection drops, the agent retries after `RASPIDEPLOY_POLL_INTERVAL` (default 10s). When stopped gracefully (e.g. `systemctl stop`), the agent notifies the server and its status switches to offline immediately.
+Expected output:
+
+```
+● raspideploy-agent.service - RaspiDeploy Agent
+     Loaded: loaded (/etc/systemd/system/raspideploy-agent.service; enabled)
+     Active: active (running) since ...
+```
+
+#### 4. View live logs
+
+```bash
+# Follow logs in real time
+sudo journalctl -u raspideploy-agent -f
+
+# Last 50 lines
+sudo journalctl -u raspideploy-agent -n 50
+```
+
+#### 5. Lifecycle commands
+
+| Action | Command |
+|--------|---------|
+| Start | `sudo systemctl start raspideploy-agent` |
+| Stop (graceful) | `sudo systemctl stop raspideploy-agent` |
+| Restart | `sudo systemctl restart raspideploy-agent` |
+| Disable autostart | `sudo systemctl disable raspideploy-agent` |
+| Reload unit file | `sudo systemctl daemon-reload` |
+
+Stopping the agent with `systemctl stop` sends SIGTERM — the agent finishes any running task, notifies the server it is going offline, and exits cleanly.
+
+The agent connects on startup and maintains a persistent long-poll connection — tasks are delivered in milliseconds. If the connection drops the agent reconnects automatically using exponential backoff (1s, 2s, 4s … up to `RASPIDEPLOY_POLL_INTERVAL`, default 60s) with ±25% jitter to avoid thundering herds. When stopped gracefully (e.g. `systemctl stop` or CTRL+C), the agent notifies the server immediately and its status switches to offline.
 
 ### Set up named scripts
 
