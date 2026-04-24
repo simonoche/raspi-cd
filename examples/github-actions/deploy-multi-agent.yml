@@ -7,8 +7,8 @@
 # Each entry can override target_dir and commands independently.
 #
 # Required repository secrets:
-#   RASPIDEPLOY_SERVER  — e.g. https://deploy.example.com
-#   RASPIDEPLOY_SECRET  — the shared Bearer token secret
+#   RASPICD_SERVER  — e.g. https://deploy.example.com
+#   RASPICD_SECRET  — the shared Bearer token secret
 
 name: Deploy (multi-agent)
 
@@ -18,8 +18,8 @@ on:
   workflow_dispatch:
 
 env:
-  RASPIDEPLOY_SERVER: ${{ secrets.RASPIDEPLOY_SERVER }}
-  RASPIDEPLOY_SECRET: ${{ secrets.RASPIDEPLOY_SECRET }}
+  RASPICD_SERVER: ${{ secrets.RASPICD_SERVER }}
+  RASPICD_SECRET: ${{ secrets.RASPICD_SECRET }}
   POLL_INTERVAL: 10
   TIMEOUT_STEPS: 30
 
@@ -48,8 +48,8 @@ jobs:
       - name: Dispatch deploy task
         id: dispatch
         run: |
-          RESPONSE=$(curl -sf -X POST "$RASPIDEPLOY_SERVER/api/v1/tasks" \
-            -H "Authorization: Bearer $RASPIDEPLOY_SECRET" \
+          RESPONSE=$(curl -sf -X POST "$RASPICD_SERVER/api/v1/tasks" \
+            -H "Authorization: Bearer $RASPICD_SECRET" \
             -H "Content-Type: application/json" \
             -d '{
               "type": "deploy",
@@ -72,8 +72,8 @@ jobs:
           echo "Polling task $TASK_ID on ${{ matrix.agent_id }} ..."
 
           for i in $(seq 1 "$TIMEOUT_STEPS"); do
-            TASK=$(curl -sf "$RASPIDEPLOY_SERVER/api/v1/tasks/$TASK_ID" \
-              -H "Authorization: Bearer $RASPIDEPLOY_SECRET")
+            TASK=$(curl -sf "$RASPICD_SERVER/api/v1/tasks/$TASK_ID" \
+              -H "Authorization: Bearer $RASPICD_SECRET")
 
             STATUS=$(echo "$TASK" | jq -r .status)
             echo "[$i/$TIMEOUT_STEPS] status: $STATUS"

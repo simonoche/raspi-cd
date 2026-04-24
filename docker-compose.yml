@@ -7,10 +7,10 @@ services:
     container_name: raspicd-server
     restart: unless-stopped
     environment:
-      RASPIDEPLOY_BIND: ":8080"
-      RASPIDEPLOY_SECRET: "${RASPIDEPLOY_SECRET}"
-      RASPIDEPLOY_AGENT_SECRET: "${RASPIDEPLOY_AGENT_SECRET}"
-      RASPIDEPLOY_DEBUG: "${RASPIDEPLOY_DEBUG:-false}"
+      RASPICD_BIND: ":8080"
+      RASPICD_SECRET: "${RASPICD_SECRET}"
+      RASPICD_AGENT_SECRET: "${RASPICD_AGENT_SECRET}"
+      RASPICD_DEBUG: "${RASPICD_DEBUG:-false}"
     ports:
       - "8080:8080"
     volumes:

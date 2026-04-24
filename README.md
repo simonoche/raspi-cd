@@ -31,14 +31,14 @@ CI/CD pipeline  ──POST /api/v1/tasks──▶  Server (public)
 RasPiCD uses two separate secrets so a compromised Pi cannot be used to create new tasks.
 
 ```bash
-openssl rand -hex 32   # CI/CD secret  → RASPIDEPLOY_SECRET
-openssl rand -hex 32   # Agent secret  → RASPIDEPLOY_AGENT_SECRET
+openssl rand -hex 32   # CI/CD secret  → RASPICD_SECRET
+openssl rand -hex 32   # Agent secret  → RASPICD_AGENT_SECRET
 ```
 
 | Secret | Used by | Can do |
 |--------|---------|--------|
-| `RASPIDEPLOY_SECRET` | CI/CD pipelines | Create tasks, list tasks and agents |
-| `RASPIDEPLOY_AGENT_SECRET` | Agents on each Pi | Heartbeat, fetch tasks, report results |
+| `RASPICD_SECRET` | CI/CD pipelines | Create tasks, list tasks and agents |
+| `RASPICD_AGENT_SECRET` | Agents on each Pi | Heartbeat, fetch tasks, report results |
 
 ### Run with Docker Compose
 
@@ -51,8 +51,8 @@ services:
     container_name: raspicd-server
     restart: unless-stopped
     environment:
-      RASPIDEPLOY_SECRET: "${RASPIDEPLOY_SECRET}"
-      RASPIDEPLOY_AGENT_SECRET: "${RASPIDEPLOY_AGENT_SECRET}"
+      RASPICD_SECRET: "${RASPICD_SECRET}"
+      RASPICD_AGENT_SECRET: "${RASPICD_AGENT_SECRET}"
     ports:
       - "8080:8080"
     volumes:
@@ -65,8 +65,8 @@ volumes:
 Then start it:
 
 ```bash
-export RASPIDEPLOY_SECRET=<your-ci-secret>
-export RASPIDEPLOY_AGENT_SECRET=<your-agent-secret>
+export RASPICD_SECRET=<your-ci-secret>
+export RASPICD_AGENT_SECRET=<your-agent-secret>
 docker compose up -d
 ```
 
@@ -83,11 +83,11 @@ curl https://your-server.example.com/health
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
-| `RASPIDEPLOY_SECRET` | Yes | — | CI/CD Bearer token secret (used by pipelines to create tasks) |
-| `RASPIDEPLOY_AGENT_SECRET` | Yes | — | Agent Bearer token secret (used by agents to poll and report) |
-| `RASPIDEPLOY_BIND` | No | `:8080` | Listen address |
-| `RASPIDEPLOY_AGENT_TIMEOUT` | No | `90s` | Mark agents offline after this duration without a heartbeat |
-| `RASPIDEPLOY_DEBUG` | No | `false` | Verbose logging |
+| `RASPICD_SECRET` | Yes | — | CI/CD Bearer token secret (used by pipelines to create tasks) |
+| `RASPICD_AGENT_SECRET` | Yes | — | Agent Bearer token secret (used by agents to poll and report) |
+| `RASPICD_BIND` | No | `:8080` | Listen address |
+| `RASPICD_AGENT_TIMEOUT` | No | `90s` | Mark agents offline after this duration without a heartbeat |
+| `RASPICD_DEBUG` | No | `false` | Verbose logging |
 
 ### Expose the server publicly
 
@@ -130,29 +130,29 @@ Create the config directory and write the environment file:
 ```bash
 sudo mkdir -p /etc/raspicd
 sudo tee /etc/raspicd/agent.env > /dev/null <<EOF
-RASPIDEPLOY_SERVER=https://your-server.example.com
-RASPIDEPLOY_AGENT_ID=raspi-living-room
-RASPIDEPLOY_AGENT_SECRET=<your-agent-secret>
-# RASPIDEPLOY_SCRIPTS_DIR=/etc/raspicd/scripts
-# RASPIDEPLOY_POLL_INTERVAL=60s   # max retry delay – exponential backoff (default: 60s)
+RASPICD_SERVER=https://your-server.example.com
+RASPICD_AGENT_ID=raspi-living-room
+RASPICD_AGENT_SECRET=<your-agent-secret>
+# RASPICD_SCRIPTS_DIR=/etc/raspicd/scripts
+# RASPICD_POLL_INTERVAL=60s   # max retry delay – exponential backoff (default: 60s)
 EOF
 
 # Protect the file — it contains the secret
 sudo chmod 600 /etc/raspicd/agent.env
 ```
 
-`RASPIDEPLOY_AGENT_ID` is the unique name you will use when targeting this Pi from CI/CD. Use something descriptive (`raspi-living-room`, `raspi-garage`, etc.).
+`RASPICD_AGENT_ID` is the unique name you will use when targeting this Pi from CI/CD. Use something descriptive (`raspi-living-room`, `raspi-garage`, etc.).
 
 ### Agent environment variables
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
-| `RASPIDEPLOY_SERVER` | Yes | — | Server base URL |
-| `RASPIDEPLOY_AGENT_ID` | Yes | — | Unique name for this Pi |
-| `RASPIDEPLOY_AGENT_SECRET` | Yes | — | Agent Bearer token secret |
-| `RASPIDEPLOY_POLL_INTERVAL` | No | `60s` | Maximum retry delay (exponential backoff: 1s → 2s → 4s → … → this value) |
-| `RASPIDEPLOY_SCRIPTS_DIR` | No | `/etc/raspicd/scripts` | Directory of named scripts |
-| `RASPIDEPLOY_DEBUG` | No | `false` | Verbose logging |
+| `RASPICD_SERVER` | Yes | — | Server base URL |
+| `RASPICD_AGENT_ID` | Yes | — | Unique name for this Pi |
+| `RASPICD_AGENT_SECRET` | Yes | — | Agent Bearer token secret |
+| `RASPICD_POLL_INTERVAL` | No | `60s` | Maximum retry delay (exponential backoff: 1s → 2s → 4s → … → this value) |
+| `RASPICD_SCRIPTS_DIR` | No | `/etc/raspicd/scripts` | Directory of named scripts |
+| `RASPICD_DEBUG` | No | `false` | Verbose logging |
 
 ### Run as a systemd daemon
 
@@ -233,7 +233,7 @@ sudo journalctl -u raspicd-agent -n 50
 
 Stopping the agent with `systemctl stop` sends SIGTERM — the agent finishes any running task, notifies the server it is going offline, and exits cleanly.
 
-The agent connects on startup and maintains a persistent long-poll connection — tasks are delivered in milliseconds. If the connection drops the agent reconnects automatically using exponential backoff (1s, 2s, 4s … up to `RASPIDEPLOY_POLL_INTERVAL`, default 60s) with ±25% jitter to avoid thundering herds. When stopped gracefully (e.g. `systemctl stop` or CTRL+C), the agent notifies the server immediately and its status switches to offline.
+The agent connects on startup and maintains a persistent long-poll connection — tasks are delivered in milliseconds. If the connection drops the agent reconnects automatically using exponential backoff (1s, 2s, 4s … up to `RASPICD_POLL_INTERVAL`, default 60s) with ±25% jitter to avoid thundering herds. When stopped gracefully (e.g. `systemctl stop` or CTRL+C), the agent notifies the server immediately and its status switches to offline.
 
 ### Set up named scripts
 
@@ -246,7 +246,7 @@ sudo tee /etc/raspicd/scripts/deploy-myapp.sh > /dev/null <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
 
-REF="${RASPIDEPLOY_CONFIG_REF:-main}"
+REF="${RASPICD_CONFIG_REF:-main}"
 TARGET_DIR="/opt/myapp"
 
 cd "$TARGET_DIR"
@@ -266,10 +266,10 @@ Scripts receive task context as environment variables — no arguments needed:
 
 | Variable | Value |
 |----------|-------|
-| `RASPIDEPLOY_TASK_ID` | ID of this task |
-| `RASPIDEPLOY_AGENT_ID` | ID of this agent |
-| `RASPIDEPLOY_CONFIG` | Full `config` object as a JSON string |
-| `RASPIDEPLOY_CONFIG_<KEY>` | One var per top-level scalar in `config` |
+| `RASPICD_TASK_ID` | ID of this task |
+| `RASPICD_AGENT_ID` | ID of this agent |
+| `RASPICD_CONFIG` | Full `config` object as a JSON string |
+| `RASPICD_CONFIG_<KEY>` | One var per top-level scalar in `config` |
 
 See [`examples/named-scripts/`](examples/named-scripts/) for a fully annotated example.
 
@@ -352,7 +352,7 @@ Use `POST /api/v1/tasks/broadcast` to send the same task to every agent that is 
 
 ```bash
 curl -X POST https://your-server.example.com/api/v1/tasks/broadcast \
-  -H "Authorization: Bearer $RASPIDEPLOY_SECRET" \
+  -H "Authorization: Bearer $RASPICD_SECRET" \
   -H "Content-Type: application/json" \
   -d '{
     "type": "named_script",
@@ -368,15 +368,15 @@ See [`examples/github-actions/write-commit-id.yml`](examples/github-actions/writ
 
 ### GitHub Actions
 
-Add `RASPIDEPLOY_SECRET` and `RASPIDEPLOY_SERVER` as repository secrets. A ready-to-use workflow is available at [`examples/github-actions/deploy-named-script.yml`](examples/github-actions/deploy-named-script.yml).
+Add `RASPICD_SECRET` and `RASPICD_SERVER` as repository secrets. A ready-to-use workflow is available at [`examples/github-actions/deploy-named-script.yml`](examples/github-actions/deploy-named-script.yml).
 
 Minimal example using `named_script`:
 
 ```yaml
 - name: Deploy to Raspberry Pi
   run: |
-    curl -sf -X POST "$RASPIDEPLOY_SERVER/api/v1/tasks" \
-      -H "Authorization: Bearer $RASPIDEPLOY_SECRET" \
+    curl -sf -X POST "$RASPICD_SERVER/api/v1/tasks" \
+      -H "Authorization: Bearer $RASPICD_SECRET" \
       -H "Content-Type: application/json" \
       -d '{
         "type":     "named_script",
@@ -390,21 +390,21 @@ Minimal example using `named_script`:
         }
       }'
   env:
-    RASPIDEPLOY_SERVER: ${{ secrets.RASPIDEPLOY_SERVER }}
-    RASPIDEPLOY_SECRET: ${{ secrets.RASPIDEPLOY_SECRET }}
+    RASPICD_SERVER: ${{ secrets.RASPICD_SERVER }}
+    RASPICD_SECRET: ${{ secrets.RASPICD_SECRET }}
 ```
 
 ### GitLab CI
 
-Add `RASPIDEPLOY_SECRET` and `RASPIDEPLOY_SERVER` as CI/CD variables, then:
+Add `RASPICD_SECRET` and `RASPICD_SERVER` as CI/CD variables, then:
 
 ```yaml
 deploy:
   stage: deploy
   script:
     - |
-      curl -sf -X POST "$RASPIDEPLOY_SERVER/api/v1/tasks" \
-        -H "Authorization: Bearer $RASPIDEPLOY_SECRET" \
+      curl -sf -X POST "$RASPICD_SERVER/api/v1/tasks" \
+        -H "Authorization: Bearer $RASPICD_SECRET" \
         -H "Content-Type: application/json" \
         -d '{
           "type":     "named_script",
@@ -425,7 +425,7 @@ deploy:
 
 ```bash
 curl -X POST https://your-server.example.com/api/v1/tasks \
-  -H "Authorization: Bearer $RASPIDEPLOY_SECRET" \
+  -H "Authorization: Bearer $RASPICD_SECRET" \
   -H "Content-Type: application/json" \
   -d '{
     "type":     "named_script",
@@ -448,14 +448,14 @@ curl -X POST https://your-server.example.com/api/v1/tasks \
 
 ```bash
 curl -s https://your-server.example.com/api/v1/tasks \
-  -H "Authorization: Bearer $RASPIDEPLOY_SECRET" | jq .
+  -H "Authorization: Bearer $RASPICD_SECRET" | jq .
 ```
 
 **Filter by agent or status:**
 
 ```bash
 curl -s "https://your-server.example.com/api/v1/tasks?agent_id=raspi-living-room&status=failed" \
-  -H "Authorization: Bearer $RASPIDEPLOY_SECRET" | jq .
+  -H "Authorization: Bearer $RASPICD_SECRET" | jq .
 ```
 
 **Poll a specific task until it completes:**
@@ -465,7 +465,7 @@ TASK_ID=2c52c5e6c0880ff8
 
 while true; do
   STATUS=$(curl -s "https://your-server.example.com/api/v1/tasks/$TASK_ID" \
-    -H "Authorization: Bearer $RASPIDEPLOY_SECRET" | jq -r .status)
+    -H "Authorization: Bearer $RASPICD_SECRET" | jq -r .status)
   echo "status: $STATUS"
   [[ "$STATUS" == "completed" || "$STATUS" == "failed" ]] && break
   sleep 5
@@ -476,7 +476,7 @@ done
 
 ```bash
 curl -s https://your-server.example.com/api/v1/agents \
-  -H "Authorization: Bearer $RASPIDEPLOY_SECRET" | jq .
+  -H "Authorization: Bearer $RASPICD_SECRET" | jq .
 ```
 
 ---
@@ -491,7 +491,7 @@ Endpoints are split by which secret they require.
 |--------|------|-------------|
 | `GET` | `/health` | Server health check |
 
-**Agent secret** (`RASPIDEPLOY_AGENT_SECRET`)
+**Agent secret** (`RASPICD_AGENT_SECRET`)
 
 | Method | Path | Description |
 |--------|------|-------------|
@@ -500,7 +500,7 @@ Endpoints are split by which secret they require.
 | `GET` | `/api/v1/agents/{id}/tasks` | Pending tasks for one agent (supports `?wait=1` for long polling) |
 | `POST` | `/api/v1/tasks/{id}/result` | Agent reports task progress/completion |
 
-**CI secret** (`RASPIDEPLOY_SECRET`)
+**CI secret** (`RASPICD_SECRET`)
 
 | Method | Path | Description |
 |--------|------|-------------|

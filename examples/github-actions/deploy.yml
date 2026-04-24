@@ -6,8 +6,8 @@
 # See deploy-and-wait.yml if you need CI to fail when the deployment fails.
 #
 # Required repository secrets:
-#   RASPIDEPLOY_SERVER  — e.g. https://deploy.example.com
-#   RASPIDEPLOY_SECRET  — the shared Bearer token secret
+#   RASPICD_SERVER  — e.g. https://deploy.example.com
+#   RASPICD_SECRET  — the shared Bearer token secret
 
 name: Deploy
 
@@ -24,8 +24,8 @@ jobs:
     steps:
       - name: Send deploy task to RasPiCD
         run: |
-          curl -sf -X POST "$RASPIDEPLOY_SERVER/api/v1/tasks" \
-            -H "Authorization: Bearer $RASPIDEPLOY_SECRET" \
+          curl -sf -X POST "$RASPICD_SERVER/api/v1/tasks" \
+            -H "Authorization: Bearer $RASPICD_SECRET" \
             -H "Content-Type: application/json" \
             -d '{
               "type": "deploy",
@@ -41,5 +41,5 @@ jobs:
               }
             }'
         env:
-          RASPIDEPLOY_SERVER: ${{ secrets.RASPIDEPLOY_SERVER }}
-          RASPIDEPLOY_SECRET: ${{ secrets.RASPIDEPLOY_SECRET }}
+          RASPICD_SERVER: ${{ secrets.RASPICD_SERVER }}
+          RASPICD_SECRET: ${{ secrets.RASPICD_SECRET }}

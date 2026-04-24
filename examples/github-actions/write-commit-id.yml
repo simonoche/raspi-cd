@@ -5,8 +5,8 @@
 # completes (or fails).
 #
 # Required repository secrets:
-#   RASPIDEPLOY_SERVER  — e.g. https://deploy.example.com
-#   RASPIDEPLOY_SECRET  — CI/CD Bearer token secret
+#   RASPICD_SERVER  — e.g. https://deploy.example.com
+#   RASPICD_SECRET  — CI/CD Bearer token secret
 
 name: Write commit ID
 
@@ -16,8 +16,8 @@ on:
   workflow_dispatch:
 
 env:
-  RASPIDEPLOY_SERVER: ${{ secrets.RASPIDEPLOY_SERVER }}
-  RASPIDEPLOY_SECRET: ${{ secrets.RASPIDEPLOY_SECRET }}
+  RASPICD_SERVER: ${{ secrets.RASPICD_SERVER }}
+  RASPICD_SECRET: ${{ secrets.RASPICD_SECRET }}
   POLL_INTERVAL: 10   # seconds between status checks
   TIMEOUT_STEPS: 18   # 18 × 10s = 3 minutes
 
@@ -30,8 +30,8 @@ jobs:
       - name: Broadcast script task
         id: dispatch
         run: |
-          RESPONSE=$(curl -sf -X POST "$RASPIDEPLOY_SERVER/api/v1/tasks/broadcast" \
-            -H "Authorization: Bearer $RASPIDEPLOY_SECRET" \
+          RESPONSE=$(curl -sf -X POST "$RASPICD_SERVER/api/v1/tasks/broadcast" \
+            -H "Authorization: Bearer $RASPICD_SECRET" \
             -H "Content-Type: application/json" \
             -d '{
               "type": "script",
@@ -53,8 +53,8 @@ jobs:
             echo "--- Polling task $TASK_ID ---"
 
             for i in $(seq 1 "$TIMEOUT_STEPS"); do
-              TASK=$(curl -sf "$RASPIDEPLOY_SERVER/api/v1/tasks/$TASK_ID" \
-                -H "Authorization: Bearer $RASPIDEPLOY_SECRET")
+              TASK=$(curl -sf "$RASPICD_SERVER/api/v1/tasks/$TASK_ID" \
+                -H "Authorization: Bearer $RASPICD_SECRET")
 
               STATUS=$(echo "$TASK" | jq -r .status)
               AGENT=$(echo "$TASK"  | jq -r .agent_id)

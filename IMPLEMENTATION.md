@@ -35,7 +35,7 @@ RasPiCD is a lightweight remote-deployment system for Raspberry Pis that sit beh
 
 ### Authentication
 
-- A single shared secret (`RASPIDEPLOY_SECRET`) is required on both sides.
+- A single shared secret (`RASPICD_SECRET`) is required on both sides.
 - Every API request (including agent calls) must carry the header `Authorization: Bearer <secret>`.
 - The `/health` endpoint is unauthenticated (used for Docker health checks and uptime monitoring).
 - `crypto/subtle.ConstantTimeCompare` is used for token comparison to prevent timing attacks.
@@ -99,10 +99,10 @@ raspicd/
 
 | Flag | Env var | Default | Description |
 |---|---|---|---|
-| `--bind` / `-b` | `RASPIDEPLOY_BIND` | `:8080` | Listen address |
-| `--secret` / `-k` | `RASPIDEPLOY_SECRET` | — | **Required.** Shared auth secret |
-| `--agent-timeout` / `-t` | `RASPIDEPLOY_AGENT_TIMEOUT` | `90s` | Mark agents offline after this duration without a heartbeat |
-| `--debug` / `-D` | `RASPIDEPLOY_DEBUG` | `false` | Verbose logging |
+| `--bind` / `-b` | `RASPICD_BIND` | `:8080` | Listen address |
+| `--secret` / `-k` | `RASPICD_SECRET` | — | **Required.** Shared auth secret |
+| `--agent-timeout` / `-t` | `RASPICD_AGENT_TIMEOUT` | `90s` | Mark agents offline after this duration without a heartbeat |
+| `--debug` / `-D` | `RASPICD_DEBUG` | `false` | Verbose logging |
 
 ### REST API
 
@@ -151,13 +151,13 @@ A background goroutine (`staleSweep`) runs every `agentTimeout / 3` (minimum 2 s
 
 | Flag | Env var | Default | Description |
 |---|---|---|---|
-| `--server` / `-s` | `RASPIDEPLOY_SERVER` | — | **Required.** Server base URL |
-| `--agent-id` / `--id` | `RASPIDEPLOY_AGENT_ID` | — | **Required.** Unique name for this Pi |
-| `--secret` / `-k` | `RASPIDEPLOY_SECRET` | — | **Required.** Shared auth secret |
+| `--server` / `-s` | `RASPICD_SERVER` | — | **Required.** Server base URL |
+| `--agent-id` / `--id` | `RASPICD_AGENT_ID` | — | **Required.** Unique name for this Pi |
+| `--secret` / `-k` | `RASPICD_SECRET` | — | **Required.** Shared auth secret |
 | `--hostname` / `-n` | `HOSTNAME` | system hostname | Friendly display name |
-| `--interval` / `-i` | `RASPIDEPLOY_POLL_INTERVAL` | `30s` | How often to poll |
-| `--scripts-dir` / `-S` | `RASPIDEPLOY_SCRIPTS_DIR` | `/etc/raspicd/scripts` | Directory of named scripts |
-| `--debug` / `-d` | `RASPIDEPLOY_DEBUG` | `false` | Verbose logging |
+| `--interval` / `-i` | `RASPICD_POLL_INTERVAL` | `30s` | How often to poll |
+| `--scripts-dir` / `-S` | `RASPICD_SCRIPTS_DIR` | `/etc/raspicd/scripts` | Directory of named scripts |
+| `--debug` / `-d` | `RASPICD_DEBUG` | `false` | Verbose logging |
 
 ### Poll loop
 
@@ -199,10 +199,10 @@ The agent resolves `name` to `<scripts_dir>/deploy-myapp.sh` and runs it after v
 
 | Variable | Value |
 |---|---|
-| `RASPIDEPLOY_TASK_ID` | ID of this task |
-| `RASPIDEPLOY_AGENT_ID` | ID of this agent |
-| `RASPIDEPLOY_CONFIG` | Full `config` object as a JSON string |
-| `RASPIDEPLOY_CONFIG_<KEY>` | One var per top-level scalar in `config` (string / number / bool) |
+| `RASPICD_TASK_ID` | ID of this task |
+| `RASPICD_AGENT_ID` | ID of this agent |
+| `RASPICD_CONFIG` | Full `config` object as a JSON string |
+| `RASPICD_CONFIG_<KEY>` | One var per top-level scalar in `config` (string / number / bool) |
 
 Scripts inherit the agent process environment (PATH, HOME, etc.) so standard tools work without explicit configuration.
 
@@ -293,7 +293,7 @@ Trigger a deployment with a single `curl`. The recommended approach uses `named_
 
 ```bash
 curl -sf -X POST https://your-server/api/v1/tasks \
-  -H "Authorization: Bearer $RASPIDEPLOY_SECRET" \
+  -H "Authorization: Bearer $RASPICD_SECRET" \
   -H "Content-Type: application/json" \
   -d '{
     "type":     "named_script",

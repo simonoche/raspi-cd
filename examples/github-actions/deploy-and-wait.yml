@@ -8,8 +8,8 @@
 # succeeded — e.g. before merging to a release branch or sending a notification.
 #
 # Required repository secrets:
-#   RASPIDEPLOY_SERVER  — e.g. https://deploy.example.com
-#   RASPIDEPLOY_SECRET  — the shared Bearer token secret
+#   RASPICD_SERVER  — e.g. https://deploy.example.com
+#   RASPICD_SECRET  — the shared Bearer token secret
 
 name: Deploy and wait
 
@@ -19,8 +19,8 @@ on:
   workflow_dispatch:
 
 env:
-  RASPIDEPLOY_SERVER: ${{ secrets.RASPIDEPLOY_SERVER }}
-  RASPIDEPLOY_SECRET: ${{ secrets.RASPIDEPLOY_SECRET }}
+  RASPICD_SERVER: ${{ secrets.RASPICD_SERVER }}
+  RASPICD_SECRET: ${{ secrets.RASPICD_SECRET }}
   AGENT_ID: raspi-living-room
   TARGET_DIR: /opt/myapp
   POLL_INTERVAL: 10   # seconds between status checks
@@ -35,8 +35,8 @@ jobs:
       - name: Dispatch deploy task
         id: dispatch
         run: |
-          RESPONSE=$(curl -sf -X POST "$RASPIDEPLOY_SERVER/api/v1/tasks" \
-            -H "Authorization: Bearer $RASPIDEPLOY_SECRET" \
+          RESPONSE=$(curl -sf -X POST "$RASPICD_SERVER/api/v1/tasks" \
+            -H "Authorization: Bearer $RASPICD_SECRET" \
             -H "Content-Type: application/json" \
             -d '{
               "type": "deploy",
@@ -62,8 +62,8 @@ jobs:
           echo "Polling task $TASK_ID (timeout: $((TIMEOUT_STEPS * POLL_INTERVAL))s) ..."
 
           for i in $(seq 1 "$TIMEOUT_STEPS"); do
-            TASK=$(curl -sf "$RASPIDEPLOY_SERVER/api/v1/tasks/$TASK_ID" \
-              -H "Authorization: Bearer $RASPIDEPLOY_SECRET")
+            TASK=$(curl -sf "$RASPICD_SERVER/api/v1/tasks/$TASK_ID" \
+              -H "Authorization: Bearer $RASPICD_SECRET")
 
             STATUS=$(echo "$TASK" | jq -r .status)
             echo "[$i/$TIMEOUT_STEPS] status: $STATUS"

@@ -69,10 +69,10 @@ func (e *Executor) Run(task *models.Task) models.TaskResultRequest {
 //
 // Environment variables injected into the script:
 //
-//	RASPIDEPLOY_TASK_ID          — ID of this task
-//	RASPIDEPLOY_AGENT_ID         — ID of this agent
-//	RASPIDEPLOY_CONFIG           — full config as a JSON string
-//	RASPIDEPLOY_CONFIG_<KEY>     — one var per top-level config key (string/number/bool only)
+//	RASPICD_TASK_ID          — ID of this task
+//	RASPICD_AGENT_ID         — ID of this agent
+//	RASPICD_CONFIG           — full config as a JSON string
+//	RASPICD_CONFIG_<KEY>     — one var per top-level config key (string/number/bool only)
 func (e *Executor) namedScript(task *models.Task) (output, errMsg string) {
 	name, _ := task.Payload["name"].(string)
 	if name == "" {
@@ -116,11 +116,11 @@ func (e *Executor) namedScript(task *models.Task) (output, errMsg string) {
 
 // buildEnv constructs the environment for a named script.
 // It starts from the current process environment so the script inherits PATH,
-// HOME, etc., then appends RASPIDEPLOY_* variables.
+// HOME, etc., then appends RASPICD_* variables.
 func buildEnv(taskID, agentID string, config map[string]interface{}) []string {
 	env := append(os.Environ(),
-		"RASPIDEPLOY_TASK_ID="+taskID,
-		"RASPIDEPLOY_AGENT_ID="+agentID,
+		"RASPICD_TASK_ID="+taskID,
+		"RASPICD_AGENT_ID="+agentID,
 	)
 
 	if len(config) == 0 {
@@ -129,12 +129,12 @@ func buildEnv(taskID, agentID string, config map[string]interface{}) []string {
 
 	// Full JSON blob — useful for complex/nested config.
 	if raw, err := json.Marshal(config); err == nil {
-		env = append(env, "RASPIDEPLOY_CONFIG="+string(raw))
+		env = append(env, "RASPICD_CONFIG="+string(raw))
 	}
 
 	// Individual vars for top-level scalar values — no jq required in simple scripts.
 	for k, v := range config {
-		key := "RASPIDEPLOY_CONFIG_" + strings.ToUpper(k)
+		key := "RASPICD_CONFIG_" + strings.ToUpper(k)
 		switch val := v.(type) {
 		case string:
 			env = append(env, key+"="+val)
@@ -142,7 +142,7 @@ func buildEnv(taskID, agentID string, config map[string]interface{}) []string {
 			env = append(env, key+"="+strconv.FormatFloat(val, 'f', -1, 64))
 		case bool:
 			env = append(env, key+"="+strconv.FormatBool(val))
-			// nested objects/arrays are only available via RASPIDEPLOY_CONFIG
+			// nested objects/arrays are only available via RASPICD_CONFIG
 		}
 	}
 

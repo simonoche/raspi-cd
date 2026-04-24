@@ -7,7 +7,7 @@
 # Trigger it from CI/CD:
 #
 #   curl -X POST https://your-server/api/v1/tasks \
-#     -H "Authorization: Bearer $RASPIDEPLOY_SECRET" \
+#     -H "Authorization: Bearer $RASPICD_SECRET" \
 #     -H "Content-Type: application/json" \
 #     -d '{
 #           "type":     "named_script",
@@ -25,24 +25,24 @@
 # ---------------------------------------------------------------------------
 # Environment variables injected by the agent:
 #
-#   RASPIDEPLOY_TASK_ID          — unique task ID (useful for logging)
-#   RASPIDEPLOY_AGENT_ID         — name of this agent
-#   RASPIDEPLOY_CONFIG           — full config as a JSON string
+#   RASPICD_TASK_ID          — unique task ID (useful for logging)
+#   RASPICD_AGENT_ID         — name of this agent
+#   RASPICD_CONFIG           — full config as a JSON string
 #
 #   Per top-level config key (string / number / bool only):
-#   RASPIDEPLOY_CONFIG_REF       — "v1.2.3"
-#   RASPIDEPLOY_CONFIG_ENV       — "production"
-#   RASPIDEPLOY_CONFIG_RESTART   — "true"
+#   RASPICD_CONFIG_REF       — "v1.2.3"
+#   RASPICD_CONFIG_ENV       — "production"
+#   RASPICD_CONFIG_RESTART   — "true"
 # ---------------------------------------------------------------------------
 
 set -euo pipefail
 
 APP_DIR="/opt/myapp"
-REF="${RASPIDEPLOY_CONFIG_REF:-main}"
-ENV="${RASPIDEPLOY_CONFIG_ENV:-production}"
-RESTART="${RASPIDEPLOY_CONFIG_RESTART:-false}"
+REF="${RASPICD_CONFIG_REF:-main}"
+ENV="${RASPICD_CONFIG_ENV:-production}"
+RESTART="${RASPICD_CONFIG_RESTART:-false}"
 
-echo "[task: $RASPIDEPLOY_TASK_ID] deploying ref=$REF env=$ENV"
+echo "[task: $RASPICD_TASK_ID] deploying ref=$REF env=$ENV"
 
 # Pull the requested ref.
 if [ -d "$APP_DIR/.git" ]; then
