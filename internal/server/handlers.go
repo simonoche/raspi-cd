@@ -10,8 +10,8 @@ import (
 	"net/http"
 	"time"
 
-	"raspideploy/internal/models"
-	"raspideploy/internal/utils"
+	"raspicd/internal/models"
+	"raspicd/internal/utils"
 )
 
 // ---- index -----------------------------------------------------------------

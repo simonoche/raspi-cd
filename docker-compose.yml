@@ -1,10 +1,10 @@
 services:
-  raspideploy-server:
+  raspicd-server:
     build:
       context: .
       dockerfile: Dockerfile.server
-    image: raspideploy-server:latest
-    container_name: raspideploy-server
+    image: raspicd-server:latest
+    container_name: raspicd-server
     restart: unless-stopped
     environment:
       RASPIDEPLOY_BIND: ":8080"
@@ -14,8 +14,8 @@ services:
     ports:
       - "8080:8080"
     volumes:
-      - raspideploy-data:/data
+      - raspicd-data:/data
 
 volumes:
-  raspideploy-data:
+  raspicd-data:
     driver: local

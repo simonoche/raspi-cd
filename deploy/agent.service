@@ -10,8 +10,8 @@ Type=simple
 # Change to the user that should run the agent.
 # On Raspberry Pi OS the default user is "pi".
 User=pi
-EnvironmentFile=/etc/raspideploy/agent.env
-ExecStart=/usr/local/bin/raspideploy-agent
+EnvironmentFile=/etc/raspicd/agent.env
+ExecStart=/usr/local/bin/raspicd-agent
 # Restart on unexpected exit (crashes, OOM kills).
 # The agent handles server reconnects internally with exponential backoff,
 # so this covers only hard failures.

@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"raspideploy/internal/utils"
+	"raspicd/internal/utils"
 )
 
 // Server is the central control server.
@@ -110,10 +110,10 @@ func (s *Server) routes() {
 	s.router.HandleFunc("/api/v1/tasks/{id}", s.authCI(s.handleTask))
 }
 
-// withVersion wraps a handler to set X-Raspideploy-Version on every response.
+// withVersion wraps a handler to set X-RasPiCD-Version on every response.
 func (s *Server) withVersion(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("X-Raspideploy-Version", s.version)
+		w.Header().Set("X-RasPiCD-Version", s.version)
 		next.ServeHTTP(w, r)
 	})
 }

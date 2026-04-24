@@ -1,6 +1,6 @@
 # Deploy using a named script (Option A — recommended).
 #
-# The script content lives on the Pi at /etc/raspideploy/scripts/<name>.sh.
+# The script content lives on the Pi at /etc/raspicd/scripts/<name>.sh.
 # CI/CD only sends the script name and a config payload — no raw commands
 # travel over the wire.
 #

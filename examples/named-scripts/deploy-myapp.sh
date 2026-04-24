@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# deploy-myapp.sh — install this file at /etc/raspideploy/scripts/deploy-myapp.sh
+# deploy-myapp.sh — install this file at /etc/raspicd/scripts/deploy-myapp.sh
 # on each Raspberry Pi, then make it executable:
 #
-#   chmod +x /etc/raspideploy/scripts/deploy-myapp.sh
+#   chmod +x /etc/raspicd/scripts/deploy-myapp.sh
 #
 # Trigger it from CI/CD:
 #

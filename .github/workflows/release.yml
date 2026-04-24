@@ -35,9 +35,9 @@ jobs:
   #    Users install the agent with a single curl download — no Docker.
   #
   #    Binaries produced:
-  #      raspideploy-agent-linux-arm64   Pi 3 / 4 / 5 (64-bit OS)
-  #      raspideploy-agent-linux-armv7   Pi 2 / 3 (32-bit OS)
-  #      raspideploy-agent-linux-amd64   x86-64 (testing / VMs)
+  #      raspicd-agent-linux-arm64   Pi 3 / 4 / 5 (64-bit OS)
+  #      raspicd-agent-linux-armv7   Pi 2 / 3 (32-bit OS)
+  #      raspicd-agent-linux-amd64   x86-64 (testing / VMs)
   # ------------------------------------------------------------------
   release-agent:
     name: Release agent binaries
@@ -58,25 +58,25 @@ jobs:
           LDFLAGS="-s -w -X main.version=${VERSION}"
           mkdir -p bin
 
-          GOOS=linux GOARCH=arm64       go build -ldflags="$LDFLAGS" -o bin/raspideploy-agent-linux-arm64  ./cmd/agent
-          GOOS=linux GOARCH=arm GOARM=7 go build -ldflags="$LDFLAGS" -o bin/raspideploy-agent-linux-armv7  ./cmd/agent
-          GOOS=linux GOARCH=amd64       go build -ldflags="$LDFLAGS" -o bin/raspideploy-agent-linux-amd64  ./cmd/agent
+          GOOS=linux GOARCH=arm64       go build -ldflags="$LDFLAGS" -o bin/raspicd-agent-linux-arm64  ./cmd/agent
+          GOOS=linux GOARCH=arm GOARM=7 go build -ldflags="$LDFLAGS" -o bin/raspicd-agent-linux-armv7  ./cmd/agent
+          GOOS=linux GOARCH=amd64       go build -ldflags="$LDFLAGS" -o bin/raspicd-agent-linux-amd64  ./cmd/agent
 
       - name: Create GitHub Release and upload binaries
         uses: softprops/action-gh-release@v2
         with:
           generate_release_notes: true
           files: |
-            bin/raspideploy-agent-linux-arm64
-            bin/raspideploy-agent-linux-armv7
-            bin/raspideploy-agent-linux-amd64
+            bin/raspicd-agent-linux-arm64
+            bin/raspicd-agent-linux-armv7
+            bin/raspicd-agent-linux-amd64
 
   # ------------------------------------------------------------------
   # 3. Server: build a multi-arch Docker image and push to ghcr.io.
   #
   #    Images published:
-  #      ghcr.io/<owner>/raspideploy:latest
-  #      ghcr.io/<owner>/raspideploy:v1.2.3
+  #      ghcr.io/<owner>/raspicd:latest
+  #      ghcr.io/<owner>/raspicd:v1.2.3
   #
   #    Architectures: linux/amd64, linux/arm64
   #    (The build stage cross-compiles via Go — no QEMU slowness.)

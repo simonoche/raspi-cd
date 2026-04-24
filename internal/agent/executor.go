@@ -11,8 +11,8 @@ import (
 	"strings"
 	"time"
 
-	"raspideploy/internal/models"
-	"raspideploy/internal/utils"
+	"raspicd/internal/models"
+	"raspicd/internal/utils"
 )
 
 // Executor runs tasks on the local machine.
@@ -142,7 +142,7 @@ func buildEnv(taskID, agentID string, config map[string]interface{}) []string {
 			env = append(env, key+"="+strconv.FormatFloat(val, 'f', -1, 64))
 		case bool:
 			env = append(env, key+"="+strconv.FormatBool(val))
-		// nested objects/arrays are only available via RASPIDEPLOY_CONFIG
+			// nested objects/arrays are only available via RASPIDEPLOY_CONFIG
 		}
 	}
 

@@ -56,7 +56,7 @@ Security checks the agent performs before executing any named script:
 ## Project Structure
 
 ```
-raspideploy/
+raspicd/
 ├── cmd/
 │   ├── server/
 │   │   └── main.go                  # Server entrypoint (CLI flags, signal handling)
@@ -83,7 +83,7 @@ raspideploy/
 │   └── named-scripts/               # Example named scripts for the Pi
 ├── deploy/
 │   ├── agent.service                # systemd unit file
-│   └── agent.env.example            # Template for /etc/raspideploy/agent.env
+│   └── agent.env.example            # Template for /etc/raspicd/agent.env
 ├── Dockerfile.server                # Multi-stage build, TARGETARCH for multi-arch
 ├── docker-compose.yml               # Server + named volume
 ├── Makefile                         # build, build-arm*, test, docker-* targets
@@ -156,7 +156,7 @@ A background goroutine (`staleSweep`) runs every `agentTimeout / 3` (minimum 2 s
 | `--secret` / `-k` | `RASPIDEPLOY_SECRET` | — | **Required.** Shared auth secret |
 | `--hostname` / `-n` | `HOSTNAME` | system hostname | Friendly display name |
 | `--interval` / `-i` | `RASPIDEPLOY_POLL_INTERVAL` | `30s` | How often to poll |
-| `--scripts-dir` / `-S` | `RASPIDEPLOY_SCRIPTS_DIR` | `/etc/raspideploy/scripts` | Directory of named scripts |
+| `--scripts-dir` / `-S` | `RASPIDEPLOY_SCRIPTS_DIR` | `/etc/raspicd/scripts` | Directory of named scripts |
 | `--debug` / `-d` | `RASPIDEPLOY_DEBUG` | `false` | Verbose logging |
 
 ### Poll loop
@@ -277,12 +277,12 @@ pending  ──▶  running  ──▶  completed
 
 ## Daemon setup on Raspberry Pi
 
-The agent binary runs as a systemd service. Configuration lives in `/etc/raspideploy/agent.env` (mode `600` — it contains the secret). Named scripts live in `/etc/raspideploy/scripts/` and must be executable.
+The agent binary runs as a systemd service. Configuration lives in `/etc/raspicd/agent.env` (mode `600` — it contains the secret). Named scripts live in `/etc/raspicd/scripts/` and must be executable.
 
 ```
-/etc/systemd/system/raspideploy-agent.service   ← unit file
-/etc/raspideploy/agent.env                       ← configuration (chmod 600)
-/etc/raspideploy/scripts/<name>.sh               ← named scripts (chmod +x)
+/etc/systemd/system/raspicd-agent.service   ← unit file
+/etc/raspicd/agent.env                       ← configuration (chmod 600)
+/etc/raspicd/scripts/<name>.sh               ← named scripts (chmod +x)
 ```
 
 ---
@@ -325,9 +325,9 @@ Agent binaries produced by the release workflow:
 
 | File | Target |
 |---|---|
-| `raspideploy-agent-linux-arm64` | Pi 3 / 4 / 5 (64-bit OS) |
-| `raspideploy-agent-linux-armv7` | Pi 2 / 3 (32-bit OS) |
-| `raspideploy-agent-linux-amd64` | x86-64 (testing / VMs) |
+| `raspicd-agent-linux-arm64` | Pi 3 / 4 / 5 (64-bit OS) |
+| `raspicd-agent-linux-armv7` | Pi 2 / 3 (32-bit OS) |
+| `raspicd-agent-linux-amd64` | x86-64 (testing / VMs) |
 
 ### Docker (Server)
 

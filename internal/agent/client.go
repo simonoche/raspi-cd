@@ -10,8 +10,8 @@ import (
 	"strings"
 	"time"
 
-	"raspideploy/internal/models"
-	"raspideploy/internal/utils"
+	"raspicd/internal/models"
+	"raspicd/internal/utils"
 )
 
 // Client communicates with the RaspiDeploy server.

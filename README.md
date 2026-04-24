@@ -46,9 +46,9 @@ Create a `docker-compose.yml` on your server host:
 
 ```yaml
 services:
-  raspideploy-server:
-    image: ghcr.io/your-org/raspideploy:latest
-    container_name: raspideploy-server
+  raspicd-server:
+    image: ghcr.io/your-org/raspicd:latest
+    container_name: raspicd-server
     restart: unless-stopped
     environment:
       RASPIDEPLOY_SECRET: "${RASPIDEPLOY_SECRET}"
@@ -56,10 +56,10 @@ services:
     ports:
       - "8080:8080"
     volumes:
-      - raspideploy-data:/data
+      - raspicd-data:/data
 
 volumes:
-  raspideploy-data:
+  raspicd-data:
 ```
 
 Then start it:
@@ -112,15 +112,15 @@ On the Pi, download the binary that matches your architecture:
 ```bash
 # Pi 3 / 4 / 5 running a 64-bit OS (most common)
 VERSION=v0.1.0
-curl -fsSL -o /tmp/raspideploy-agent \
-  "https://github.com/your-org/raspideploy/releases/download/${VERSION}/raspideploy-agent-linux-arm64"
+curl -fsSL -o /tmp/raspicd-agent \
+  "https://github.com/your-org/raspicd/releases/download/${VERSION}/raspicd-agent-linux-arm64"
 
 # Pi 2 / 3 running a 32-bit OS
-curl -fsSL -o /tmp/raspideploy-agent \
-  "https://github.com/your-org/raspideploy/releases/download/${VERSION}/raspideploy-agent-linux-armv7"
+curl -fsSL -o /tmp/raspicd-agent \
+  "https://github.com/your-org/raspicd/releases/download/${VERSION}/raspicd-agent-linux-armv7"
 
-sudo mv /tmp/raspideploy-agent /usr/local/bin/raspideploy-agent
-sudo chmod +x /usr/local/bin/raspideploy-agent
+sudo mv /tmp/raspicd-agent /usr/local/bin/raspicd-agent
+sudo chmod +x /usr/local/bin/raspicd-agent
 ```
 
 ### Configure the agent
@@ -128,17 +128,17 @@ sudo chmod +x /usr/local/bin/raspideploy-agent
 Create the config directory and write the environment file:
 
 ```bash
-sudo mkdir -p /etc/raspideploy
-sudo tee /etc/raspideploy/agent.env > /dev/null <<EOF
+sudo mkdir -p /etc/raspicd
+sudo tee /etc/raspicd/agent.env > /dev/null <<EOF
 RASPIDEPLOY_SERVER=https://your-server.example.com
 RASPIDEPLOY_AGENT_ID=raspi-living-room
 RASPIDEPLOY_AGENT_SECRET=<your-agent-secret>
-# RASPIDEPLOY_SCRIPTS_DIR=/etc/raspideploy/scripts
+# RASPIDEPLOY_SCRIPTS_DIR=/etc/raspicd/scripts
 # RASPIDEPLOY_POLL_INTERVAL=60s   # max retry delay – exponential backoff (default: 60s)
 EOF
 
 # Protect the file — it contains the secret
-sudo chmod 600 /etc/raspideploy/agent.env
+sudo chmod 600 /etc/raspicd/agent.env
 ```
 
 `RASPIDEPLOY_AGENT_ID` is the unique name you will use when targeting this Pi from CI/CD. Use something descriptive (`raspi-living-room`, `raspi-garage`, etc.).
@@ -151,7 +151,7 @@ sudo chmod 600 /etc/raspideploy/agent.env
 | `RASPIDEPLOY_AGENT_ID` | Yes | — | Unique name for this Pi |
 | `RASPIDEPLOY_AGENT_SECRET` | Yes | — | Agent Bearer token secret |
 | `RASPIDEPLOY_POLL_INTERVAL` | No | `60s` | Maximum retry delay (exponential backoff: 1s → 2s → 4s → … → this value) |
-| `RASPIDEPLOY_SCRIPTS_DIR` | No | `/etc/raspideploy/scripts` | Directory of named scripts |
+| `RASPIDEPLOY_SCRIPTS_DIR` | No | `/etc/raspicd/scripts` | Directory of named scripts |
 | `RASPIDEPLOY_DEBUG` | No | `false` | Verbose logging |
 
 ### Run as a systemd daemon
@@ -161,7 +161,7 @@ Systemd keeps the agent running across reboots and restarts it automatically if 
 #### 1. Create the unit file
 
 ```bash
-sudo tee /etc/systemd/system/raspideploy-agent.service > /dev/null <<'EOF'
+sudo tee /etc/systemd/system/raspicd-agent.service > /dev/null <<'EOF'
 [Unit]
 Description=RaspiDeploy Agent
 # Wait for the network before starting — important on Pi which may
@@ -174,8 +174,8 @@ Type=simple
 # Change to the user that should run the agent.
 # On Raspberry Pi OS the default user is "pi".
 User=pi
-EnvironmentFile=/etc/raspideploy/agent.env
-ExecStart=/usr/local/bin/raspideploy-agent
+EnvironmentFile=/etc/raspicd/agent.env
+ExecStart=/usr/local/bin/raspicd-agent
 # Restart on unexpected exit (crashes, OOM kills).
 # The agent handles server reconnects internally with exponential backoff,
 # so this covers only hard failures.
@@ -193,21 +193,21 @@ EOF
 
 ```bash
 sudo systemctl daemon-reload
-sudo systemctl enable raspideploy-agent   # start automatically on boot
-sudo systemctl start raspideploy-agent
+sudo systemctl enable raspicd-agent   # start automatically on boot
+sudo systemctl start raspicd-agent
 ```
 
 #### 3. Verify it is running
 
 ```bash
-sudo systemctl status raspideploy-agent
+sudo systemctl status raspicd-agent
 ```
 
 Expected output:
 
 ```
-● raspideploy-agent.service - RaspiDeploy Agent
-     Loaded: loaded (/etc/systemd/system/raspideploy-agent.service; enabled)
+● raspicd-agent.service - RaspiDeploy Agent
+     Loaded: loaded (/etc/systemd/system/raspicd-agent.service; enabled)
      Active: active (running) since ...
 ```
 
@@ -215,20 +215,20 @@ Expected output:
 
 ```bash
 # Follow logs in real time
-sudo journalctl -u raspideploy-agent -f
+sudo journalctl -u raspicd-agent -f
 
 # Last 50 lines
-sudo journalctl -u raspideploy-agent -n 50
+sudo journalctl -u raspicd-agent -n 50
 ```
 
 #### 5. Lifecycle commands
 
 | Action | Command |
 |--------|---------|
-| Start | `sudo systemctl start raspideploy-agent` |
-| Stop (graceful) | `sudo systemctl stop raspideploy-agent` |
-| Restart | `sudo systemctl restart raspideploy-agent` |
-| Disable autostart | `sudo systemctl disable raspideploy-agent` |
+| Start | `sudo systemctl start raspicd-agent` |
+| Stop (graceful) | `sudo systemctl stop raspicd-agent` |
+| Restart | `sudo systemctl restart raspicd-agent` |
+| Disable autostart | `sudo systemctl disable raspicd-agent` |
 | Reload unit file | `sudo systemctl daemon-reload` |
 
 Stopping the agent with `systemctl stop` sends SIGTERM — the agent finishes any running task, notifies the server it is going offline, and exits cleanly.
@@ -240,9 +240,9 @@ The agent connects on startup and maintains a persistent long-poll connection �
 Named scripts are the recommended way to deploy (see [Task types](#task-types) below). Create the scripts directory and add executable shell scripts to it:
 
 ```bash
-sudo mkdir -p /etc/raspideploy/scripts
+sudo mkdir -p /etc/raspicd/scripts
 
-sudo tee /etc/raspideploy/scripts/deploy-myapp.sh > /dev/null <<'EOF'
+sudo tee /etc/raspicd/scripts/deploy-myapp.sh > /dev/null <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
 
@@ -259,7 +259,7 @@ systemctl restart myapp
 echo "Deployed $REF successfully"
 EOF
 
-sudo chmod +x /etc/raspideploy/scripts/deploy-myapp.sh
+sudo chmod +x /etc/raspicd/scripts/deploy-myapp.sh
 ```
 
 Scripts receive task context as environment variables — no arguments needed:
@@ -297,7 +297,7 @@ The most secure option. CI/CD sends only a script name; the actual script lives 
 }
 ```
 
-The agent resolves `name` to `/etc/raspideploy/scripts/deploy-myapp.sh` and validates it before executing:
+The agent resolves `name` to `/etc/raspicd/scripts/deploy-myapp.sh` and validates it before executing:
 - Name must match `[a-zA-Z0-9_-]+` (no path traversal)
 - Script must exist in the scripts directory
 - Script must have the execute bit set (`chmod +x`)
@@ -516,11 +516,11 @@ Every response from the server includes:
 
 | Header | Example | Description |
 |--------|---------|-------------|
-| `X-Raspideploy-Version` | `v1.2.3` | Server binary version — useful for verifying which build is running |
+| `X-RasPiCD-Version` | `v1.2.3` | Server binary version — useful for verifying which build is running |
 
 ```bash
 curl -sI https://your-server.example.com/health
-# X-Raspideploy-Version: v1.2.3
+# X-RasPiCD-Version: v1.2.3
 ```
 
 ### Task statuses
@@ -537,8 +537,8 @@ curl -sI https://your-server.example.com/health
 ## Building from Source
 
 ```bash
-git clone https://github.com/you/raspideploy.git
-cd raspideploy
+git clone https://github.com/you/raspicd.git
+cd raspicd
 go mod download
 
 make build              # server + agent for current platform
@@ -561,4 +561,4 @@ The version string is injected at link time from the nearest git tag:
 | `go build ./...` (no Makefile) | `dev` |
 | `make build VERSION=v9.9.9` | `v9.9.9` (manual override) |
 
-The version appears in startup logs and is exposed on every HTTP response via the `X-Raspideploy-Version` header.
+The version appears in startup logs and is exposed on every HTTP response via the `X-RasPiCD-Version` header.

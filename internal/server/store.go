@@ -4,7 +4,7 @@ import (
 	"sync"
 	"time"
 
-	"raspideploy/internal/models"
+	"raspicd/internal/models"
 )
 
 type store interface {

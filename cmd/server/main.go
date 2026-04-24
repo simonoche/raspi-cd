@@ -10,16 +10,16 @@ import (
 
 	"github.com/urfave/cli/v2"
 
-	"raspideploy/internal/server"
-	"raspideploy/internal/utils"
-	"raspideploy/static"
+	"raspicd/internal/server"
+	"raspicd/internal/utils"
+	"raspicd/static"
 )
 
 var version = "dev"
 
 func main() {
 	app := &cli.App{
-		Name:    "raspideploy-server",
+		Name:    "raspicd-server",
 		Usage:   "Central control server for RaspiDeploy",
 		Version: version,
 		Flags: []cli.Flag{

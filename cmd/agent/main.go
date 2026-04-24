@@ -11,16 +11,16 @@ import (
 
 	"github.com/urfave/cli/v2"
 
-	"raspideploy/internal/agent"
-	"raspideploy/internal/models"
-	"raspideploy/internal/utils"
+	"raspicd/internal/agent"
+	"raspicd/internal/models"
+	"raspicd/internal/utils"
 )
 
 var version = "dev"
 
 func main() {
 	app := &cli.App{
-		Name:    "raspideploy-agent",
+		Name:    "raspicd-agent",
 		Usage:   "RaspiDeploy agent daemon for Raspberry Pi",
 		Version: version,
 		Flags: []cli.Flag{
@@ -50,7 +50,7 @@ func main() {
 				Aliases: []string{"n"},
 				Usage:   "display name for this agent",
 				EnvVars: []string{"HOSTNAME"},
-				Value:   "raspideploy-agent",
+				Value:   "raspicd-agent",
 			},
 			&cli.DurationFlag{
 				Name:    "interval",
@@ -63,7 +63,7 @@ func main() {
 				Name:    "scripts-dir",
 				Aliases: []string{"S"},
 				Usage:   "directory containing named scripts (.sh files)",
-				Value:   "/etc/raspideploy/scripts",
+				Value:   "/etc/raspicd/scripts",
 				EnvVars: []string{"RASPIDEPLOY_SCRIPTS_DIR"},
 			},
 			&cli.BoolFlag{

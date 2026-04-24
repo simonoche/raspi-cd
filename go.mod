@@ -1,4 +1,4 @@
-module raspideploy
+module raspicd
 
 go 1.22
 

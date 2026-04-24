@@ -15,7 +15,7 @@ ARG TARGETOS=linux
 ARG TARGETARCH=amd64
 ARG VERSION=dev
 RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
-    go build -ldflags="-s -w -X main.version=${VERSION}" -o raspideploy-server ./cmd/server
+    go build -ldflags="-s -w -X main.version=${VERSION}" -o raspicd-server ./cmd/server
 
 # Runtime stage
 FROM alpine:3.19
@@ -26,7 +26,7 @@ RUN apk add --no-cache ca-certificates && \
     addgroup -g 1000 app && \
     adduser -D -u 1000 -G app app
 
-COPY --from=builder /app/raspideploy-server .
+COPY --from=builder /app/raspicd-server .
 
 USER app
 
@@ -35,4 +35,4 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
 
 EXPOSE 8080
 
-ENTRYPOINT ["/app/raspideploy-server"]
+ENTRYPOINT ["/app/raspicd-server"]
