@@ -9,7 +9,11 @@ import (
 
 type store interface {
 	upsertAgent(agent *models.Agent)
+	getAgent(id string) (*models.Agent, bool)
 	listAgents() []*models.Agent
+	// markStaleAgents sets status="offline" for agents whose last heartbeat
+	// is older than threshold. Returns the IDs of newly-offline agents.
+	markStaleAgents(threshold time.Duration) []string
 
 	createTask(task *models.Task)
 	getTask(id string) (*models.Task, bool)
@@ -36,6 +40,13 @@ func (s *memStore) upsertAgent(agent *models.Agent) {
 	s.agents[agent.ID] = agent
 }
 
+func (s *memStore) getAgent(id string) (*models.Agent, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	a, ok := s.agents[id]
+	return a, ok
+}
+
 func (s *memStore) listAgents() []*models.Agent {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -44,6 +55,20 @@ func (s *memStore) listAgents() []*models.Agent {
 		out = append(out, a)
 	}
 	return out
+}
+
+func (s *memStore) markStaleAgents(threshold time.Duration) []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	cutoff := time.Now().Add(-threshold)
+	var offline []string
+	for _, a := range s.agents {
+		if a.Status == "online" && a.LastHeartbeat.Before(cutoff) {
+			a.Status = "offline"
+			offline = append(offline, a.ID)
+		}
+	}
+	return offline
 }
 
 func (s *memStore) createTask(task *models.Task) {

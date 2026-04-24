@@ -5,9 +5,10 @@ import "time"
 type TaskType string
 
 const (
-	TaskTypeDeploy  TaskType = "deploy"
-	TaskTypeScript  TaskType = "script"
-	TaskTypeRestart TaskType = "restart"
+	TaskTypeDeploy      TaskType = "deploy"
+	TaskTypeScript      TaskType = "script"
+	TaskTypeRestart     TaskType = "restart"
+	TaskTypeNamedScript TaskType = "named_script"
 )
 
 type TaskStatus string

@@ -57,6 +57,13 @@ func main() {
 				Value:   30 * time.Second,
 				EnvVars: []string{"RASPIDEPLOY_POLL_INTERVAL"},
 			},
+			&cli.StringFlag{
+				Name:    "scripts-dir",
+				Aliases: []string{"S"},
+				Usage:   "directory containing named scripts (.sh files)",
+				Value:   "/etc/raspideploy/scripts",
+				EnvVars: []string{"RASPIDEPLOY_SCRIPTS_DIR"},
+			},
 			&cli.BoolFlag{
 				Name:    "debug",
 				Aliases: []string{"d"},
@@ -80,15 +87,22 @@ func run(c *cli.Context) error {
 	agentID := c.String("agent-id")
 	hostname := c.String("hostname")
 	interval := c.Duration("interval")
+	scriptsDir := c.String("scripts-dir")
 
-	utils.Logger.Infof("RaspiDeploy agent v%s  id=%s  server=%s  interval=%s",
-		version, agentID, c.String("server"), interval)
+	utils.Logger.Infof("RaspiDeploy agent v%s  id=%s  server=%s  interval=%s  scripts=%s",
+		version, agentID, c.String("server"), interval, scriptsDir)
 
 	client := agent.NewClient(c.String("server"), agentID, c.String("secret"))
-	executor := agent.NewExecutor(agentID)
+	executor := agent.NewExecutor(agentID, scriptsDir)
 
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+
+	// Contact the server immediately on startup instead of waiting for the
+	// first tick — the server would otherwise not see this agent as "online"
+	// until the full interval has elapsed.
+	utils.Logger.Infof("connecting to server on startup ...")
+	poll(client, executor, agentID, hostname)
 
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
@@ -96,33 +110,41 @@ func run(c *cli.Context) error {
 	for {
 		select {
 		case <-sigCh:
-			utils.Logger.Info("shutting down")
+			utils.Logger.Info("agent shutting down")
 			return nil
-
 		case <-ticker.C:
-			if err := client.SendHeartbeat(hostname, version); err != nil {
-				utils.Logger.Warnf("heartbeat failed: %v", err)
-				continue
-			}
+			poll(client, executor, agentID, hostname)
+		}
+	}
+}
 
-			tasks, err := client.FetchTasks()
-			if err != nil {
-				utils.Logger.Warnf("fetch tasks failed: %v", err)
-				continue
-			}
+// poll sends a heartbeat, fetches pending tasks, and executes them.
+func poll(client *agent.Client, executor *agent.Executor, agentID, hostname string) {
+	if err := client.SendHeartbeat(hostname, version); err != nil {
+		utils.Logger.Warnf("heartbeat failed: %v", err)
+		return
+	}
 
-			for _, task := range tasks {
-				// Tell the server we picked up the task before executing it.
-				_ = client.ReportResult(task.ID, models.TaskResultRequest{
-					AgentID: agentID,
-					Status:  models.TaskStatusRunning,
-				})
+	tasks, err := client.FetchTasks()
+	if err != nil {
+		utils.Logger.Warnf("fetch tasks failed: %v", err)
+		return
+	}
 
-				result := executor.Run(task)
-				if err := client.ReportResult(task.ID, result); err != nil {
-					utils.Logger.Errorf("report result failed for task %s: %v", task.ID, err)
-				}
-			}
+	for _, task := range tasks {
+		utils.Logger.Infof("picked up task %s (type: %s)", task.ID, task.Type)
+
+		// Tell the server we have started before executing — if we crash
+		// mid-task the server will show "running" rather than "pending".
+		_ = client.ReportResult(task.ID, models.TaskResultRequest{
+			AgentID: agentID,
+			Status:  models.TaskStatusRunning,
+		})
+
+		result := executor.Run(task)
+
+		if err := client.ReportResult(task.ID, result); err != nil {
+			utils.Logger.Errorf("report result failed for task %s: %v", task.ID, err)
 		}
 	}
 }

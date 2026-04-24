@@ -1,0 +1,85 @@
+# Deploy using a named script (Option A — recommended).
+#
+# The script content lives on the Pi at /etc/raspideploy/scripts/<name>.sh.
+# CI/CD only sends the script name and a config payload — no raw commands
+# travel over the wire.
+#
+# Required repository secrets:
+#   RASPIDEPLOY_SERVER  — e.g. https://deploy.example.com
+#   RASPIDEPLOY_SECRET  — the shared Bearer token secret
+
+name: Deploy (named script)
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*.*.*']
+  workflow_dispatch:
+
+env:
+  RASPIDEPLOY_SERVER: ${{ secrets.RASPIDEPLOY_SERVER }}
+  RASPIDEPLOY_SECRET: ${{ secrets.RASPIDEPLOY_SECRET }}
+  AGENT_ID: raspi-living-room
+  POLL_INTERVAL: 10
+  TIMEOUT_STEPS: 30
+
+jobs:
+  deploy:
+    name: Deploy to ${{ env.AGENT_ID }}
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Dispatch named_script task
+        id: dispatch
+        run: |
+          RESPONSE=$(curl -sf -X POST "$RASPIDEPLOY_SERVER/api/v1/tasks" \
+            -H "Authorization: Bearer $RASPIDEPLOY_SECRET" \
+            -H "Content-Type: application/json" \
+            -d '{
+              "type":     "named_script",
+              "agent_id": "'"$AGENT_ID"'",
+              "payload":  {
+                "name": "deploy-myapp",
+                "config": {
+                  "ref":     "${{ github.ref_name }}",
+                  "env":     "production",
+                  "restart": true
+                }
+              }
+            }')
+
+          TASK_ID=$(echo "$RESPONSE" | jq -r .id)
+          echo "Task created: $TASK_ID"
+          echo "task_id=$TASK_ID" >> "$GITHUB_OUTPUT"
+
+      - name: Wait for deployment to complete
+        run: |
+          TASK_ID="${{ steps.dispatch.outputs.task_id }}"
+          echo "Polling task $TASK_ID ..."
+
+          for i in $(seq 1 "$TIMEOUT_STEPS"); do
+            TASK=$(curl -sf "$RASPIDEPLOY_SERVER/api/v1/tasks/$TASK_ID" \
+              -H "Authorization: Bearer $RASPIDEPLOY_SECRET")
+
+            STATUS=$(echo "$TASK" | jq -r .status)
+            echo "[$i/$TIMEOUT_STEPS] status: $STATUS"
+
+            if [ "$STATUS" = "completed" ]; then
+              echo "--- output ---"
+              echo "$TASK" | jq -r .output
+              exit 0
+            fi
+
+            if [ "$STATUS" = "failed" ]; then
+              echo "--- error ---"
+              echo "$TASK" | jq -r .error
+              echo "--- output ---"
+              echo "$TASK" | jq -r .output
+              exit 1
+            fi
+
+            sleep "$POLL_INTERVAL"
+          done
+
+          echo "Timed out waiting for deployment."
+          exit 1

@@ -2,9 +2,11 @@ package main
 
 import (
 	"fmt"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/urfave/cli/v2"
 
@@ -34,6 +36,13 @@ func main() {
 				EnvVars:  []string{"RASPIDEPLOY_SECRET"},
 				Required: true,
 			},
+			&cli.DurationFlag{
+				Name:    "agent-timeout",
+				Aliases: []string{"t"},
+				Usage:   "mark agents offline after this duration without a heartbeat",
+				Value:   90 * time.Second,
+				EnvVars: []string{"RASPIDEPLOY_AGENT_TIMEOUT"},
+			},
 			&cli.BoolFlag{
 				Name:    "debug",
 				Aliases: []string{"D"},
@@ -55,18 +64,17 @@ func run(c *cli.Context) error {
 	}
 	utils.Logger.Infof("RaspiDeploy server v%s", version)
 
-	srv := server.New(c.String("bind"), c.String("secret"))
+	srv := server.New(c.String("bind"), c.String("secret"), c.Duration("agent-timeout"))
 
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 
 	go func() {
-		if err := srv.Start(); err != nil {
-			utils.Logger.Errorf("server stopped: %v", err)
+		if err := srv.Start(); err != nil && err != http.ErrServerClosed {
+			utils.Logger.Errorf("server error: %v", err)
 		}
 	}()
 
 	<-sigCh
-	utils.Logger.Info("shutting down")
 	return srv.Stop()
 }
