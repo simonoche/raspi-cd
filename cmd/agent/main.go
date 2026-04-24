@@ -53,8 +53,8 @@ func main() {
 			&cli.DurationFlag{
 				Name:    "interval",
 				Aliases: []string{"i"},
-				Usage:   "polling interval",
-				Value:   30 * time.Second,
+				Usage:   "retry delay after a failed server connection",
+				Value:   10 * time.Second,
 				EnvVars: []string{"RASPIDEPLOY_POLL_INTERVAL"},
 			},
 			&cli.StringFlag{
@@ -98,14 +98,7 @@ func run(c *cli.Context) error {
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 
-	// Contact the server immediately on startup instead of waiting for the
-	// first tick — the server would otherwise not see this agent as "online"
-	// until the full interval has elapsed.
-	utils.Logger.Infof("connecting to server on startup ...")
-	poll(client, executor, agentID, hostname)
-
-	ticker := time.NewTicker(interval)
-	defer ticker.Stop()
+	utils.Logger.Infof("connecting to server ...")
 
 	for {
 		select {
@@ -115,23 +108,38 @@ func run(c *cli.Context) error {
 				utils.Logger.Warnf("disconnect failed: %v", err)
 			}
 			return nil
-		case <-ticker.C:
-			poll(client, executor, agentID, hostname)
+		default:
 		}
+
+		if !poll(client, executor, agentID, hostname) {
+			// Back off before retrying so we don't hammer a down server.
+			select {
+			case <-sigCh:
+				utils.Logger.Info("agent shutting down")
+				if err := client.Disconnect(); err != nil {
+					utils.Logger.Warnf("disconnect failed: %v", err)
+				}
+				return nil
+			case <-time.After(interval):
+			}
+		}
+		// On success the server already held the connection for ~30s, so
+		// we reconnect immediately without any extra sleep.
 	}
 }
 
-// poll sends a heartbeat, fetches pending tasks, and executes them.
-func poll(client *agent.Client, executor *agent.Executor, agentID, hostname string) {
+// poll sends a heartbeat, fetches pending tasks (long-polling), and executes
+// them. Returns true on success, false if a network/server error occurred.
+func poll(client *agent.Client, executor *agent.Executor, agentID, hostname string) bool {
 	if err := client.SendHeartbeat(hostname, version); err != nil {
 		utils.Logger.Warnf("heartbeat failed: %v", err)
-		return
+		return false
 	}
 
 	tasks, err := client.FetchTasks()
 	if err != nil {
 		utils.Logger.Warnf("fetch tasks failed: %v", err)
-		return
+		return false
 	}
 
 	for _, task := range tasks {
@@ -150,4 +158,5 @@ func poll(client *agent.Client, executor *agent.Executor, agentID, hostname stri
 			utils.Logger.Errorf("report result failed for task %s: %v", task.ID, err)
 		}
 	}
+	return true
 }

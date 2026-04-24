@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
@@ -118,19 +119,54 @@ func (s *Server) handleAgentDisconnect(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
-// handleAgentTasks serves GET /api/v1/agents/{id}/tasks — pending tasks for one agent.
+// handleAgentTasks serves GET /api/v1/agents/{id}/tasks.
+// If ?wait=1 is present the handler long-polls: it blocks until a task arrives
+// or 30 seconds elapse, whichever comes first.
 func (s *Server) handleAgentTasks(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		methodNotAllowed(w, r)
 		return
 	}
 	agentID := r.PathValue("id")
+
 	tasks := s.store.listTasks(agentID, string(models.TaskStatusPending))
 	if len(tasks) > 0 {
 		utils.Logger.Infof("dispatching %d pending task(s) to agent %s", len(tasks), agentID)
-	} else {
-		utils.Logger.Debugf("no pending tasks for agent %s", agentID)
+		writeJSON(w, http.StatusOK, tasks)
+		return
 	}
+
+	if r.URL.Query().Get("wait") == "" {
+		utils.Logger.Debugf("no pending tasks for agent %s", agentID)
+		writeJSON(w, http.StatusOK, tasks)
+		return
+	}
+
+	// Long poll: subscribe then re-check the store (avoids a race between
+	// the first check above and the subscribe).
+	ch, cancel := s.notifier.subscribe(agentID)
+	defer cancel()
+
+	tasks = s.store.listTasks(agentID, string(models.TaskStatusPending))
+	if len(tasks) > 0 {
+		utils.Logger.Infof("dispatching %d pending task(s) to agent %s", len(tasks), agentID)
+		writeJSON(w, http.StatusOK, tasks)
+		return
+	}
+
+	ctx, cancelCtx := context.WithTimeout(r.Context(), 30*time.Second)
+	defer cancelCtx()
+
+	select {
+	case <-ch:
+		tasks = s.store.listTasks(agentID, string(models.TaskStatusPending))
+		if len(tasks) > 0 {
+			utils.Logger.Infof("dispatching %d pending task(s) to agent %s", len(tasks), agentID)
+		}
+	case <-ctx.Done():
+		utils.Logger.Debugf("long-poll timeout for agent %s", agentID)
+	}
+
 	writeJSON(w, http.StatusOK, tasks)
 }
 
@@ -175,6 +211,9 @@ func (s *Server) handleBroadcastTask(w http.ResponseWriter, r *http.Request) {
 		s.store.createTask(task)
 		results = append(results, models.BroadcastTaskItem{AgentID: a.ID, TaskID: task.ID})
 	}
+	for _, item := range results {
+		s.notifier.notify(item.AgentID)
+	}
 	utils.Logger.Infof("broadcast task (type=%s) created for %d agent(s)", req.Type, len(results))
 	writeJSON(w, http.StatusCreated, results)
 }
@@ -211,6 +250,7 @@ func (s *Server) handleTasks(w http.ResponseWriter, r *http.Request) {
 			UpdatedAt: time.Now(),
 		}
 		s.store.createTask(task)
+		s.notifier.notify(task.AgentID)
 		utils.Logger.Infof("task %s created: type=%s agent=%s", task.ID, task.Type, task.AgentID)
 		writeJSON(w, http.StatusCreated, map[string]string{"id": task.ID})
 

@@ -27,7 +27,7 @@ func NewClient(serverURL, agentID, secret string) *Client {
 		serverURL:  serverURL,
 		agentID:    agentID,
 		secret:     secret,
-		httpClient: &http.Client{Timeout: 30 * time.Second},
+		httpClient: &http.Client{Timeout: 45 * time.Second},
 	}
 }
 
@@ -81,7 +81,7 @@ func (c *Client) SendHeartbeat(hostname, version string) error {
 
 // FetchTasks retrieves pending tasks assigned to this agent.
 func (c *Client) FetchTasks() ([]*models.Task, error) {
-	resp, err := c.do(http.MethodGet, "/api/v1/agents/"+c.agentID+"/tasks", nil)
+	resp, err := c.do(http.MethodGet, "/api/v1/agents/"+c.agentID+"/tasks?wait=1", nil)
 	if err != nil {
 		return nil, fmt.Errorf("fetch tasks: %w", err)
 	}

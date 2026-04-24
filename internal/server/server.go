@@ -17,6 +17,7 @@ type Server struct {
 	agentSecret  string // used by agents to heartbeat, fetch tasks, and report results
 	agentTimeout time.Duration
 	store        store
+	notifier     *notifier
 	router       *http.ServeMux
 	httpSrv      *http.Server
 	cancel       context.CancelFunc
@@ -30,6 +31,7 @@ func New(bindAddr, ciSecret, agentSecret string, agentTimeout time.Duration) *Se
 		agentSecret:  agentSecret,
 		agentTimeout: agentTimeout,
 		store:        newMemStore(),
+		notifier:     newNotifier(),
 		router:       http.NewServeMux(),
 	}
 	s.routes()
