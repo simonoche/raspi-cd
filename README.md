@@ -2,14 +2,15 @@
 
 Deploy to Raspberry Pis from any CI/CD pipeline.
 
-**How it works:** a lightweight server sits on the public internet. Each Pi runs an agent that polls the server for tasks. Your CI/CD pipeline pushes a task to the server — the next time the agent polls, it picks it up and executes it locally.
+**How it works:** a lightweight server sits on the public internet. Each Pi runs an agent that maintains a persistent long-poll connection to the server. Your CI/CD pipeline pushes a task — the agent receives it instantly and executes it locally.
 
 No inbound ports are needed on the Pi. The agent connects outbound only.
 
 ```
 CI/CD pipeline  ──POST /api/v1/tasks──▶  Server (public)
                                               ▲
-                 Agent (Pi) polls on startup, │then every 30s
+                          Agent (Pi) ─────────┘
+                          long-poll: task delivered in milliseconds
 ```
 
 ---
@@ -25,13 +26,19 @@ CI/CD pipeline  ──POST /api/v1/tasks──▶  Server (public)
 
 ## 1. Deploy the Server
 
-### Generate a secret
+### Generate secrets
+
+RaspiDeploy uses two separate secrets so a compromised Pi cannot be used to create new tasks.
 
 ```bash
-openssl rand -hex 32
+openssl rand -hex 32   # CI/CD secret  → RASPIDEPLOY_SECRET
+openssl rand -hex 32   # Agent secret  → RASPIDEPLOY_AGENT_SECRET
 ```
 
-Keep this value — you will need it on both the server and every agent.
+| Secret | Used by | Can do |
+|--------|---------|--------|
+| `RASPIDEPLOY_SECRET` | CI/CD pipelines | Create tasks, list tasks and agents |
+| `RASPIDEPLOY_AGENT_SECRET` | Agents on each Pi | Heartbeat, fetch tasks, report results |
 
 ### Run with Docker Compose
 
@@ -126,8 +133,8 @@ sudo tee /etc/raspideploy/agent.env > /dev/null <<EOF
 RASPIDEPLOY_SERVER=https://your-server.example.com
 RASPIDEPLOY_AGENT_ID=raspi-living-room
 RASPIDEPLOY_AGENT_SECRET=<your-agent-secret>
-RASPIDEPLOY_POLL_INTERVAL=30s
 # RASPIDEPLOY_SCRIPTS_DIR=/etc/raspideploy/scripts
+# RASPIDEPLOY_POLL_INTERVAL=10s   # retry delay on connection error (default: 10s)
 EOF
 
 # Protect the file — it contains the secret
@@ -143,7 +150,7 @@ sudo chmod 600 /etc/raspideploy/agent.env
 | `RASPIDEPLOY_SERVER` | Yes | — | Server base URL |
 | `RASPIDEPLOY_AGENT_ID` | Yes | — | Unique name for this Pi |
 | `RASPIDEPLOY_AGENT_SECRET` | Yes | — | Agent Bearer token secret |
-| `RASPIDEPLOY_POLL_INTERVAL` | No | `30s` | How often to poll |
+| `RASPIDEPLOY_POLL_INTERVAL` | No | `10s` | Retry delay after a failed server connection |
 | `RASPIDEPLOY_SCRIPTS_DIR` | No | `/etc/raspideploy/scripts` | Directory of named scripts |
 | `RASPIDEPLOY_DEBUG` | No | `false` | Verbose logging |
 
@@ -163,7 +170,7 @@ sudo systemctl status raspideploy-agent
 sudo journalctl -u raspideploy-agent -f
 ```
 
-The agent contacts the server immediately on startup, then continues to poll every 30 seconds. You should see a successful heartbeat log within seconds of starting the service.
+The agent connects on startup and maintains a persistent long-poll connection — tasks are delivered in milliseconds. If the connection drops, the agent retries after `RASPIDEPLOY_POLL_INTERVAL` (default 10s). When stopped gracefully (e.g. `systemctl stop`), the agent notifies the server and its status switches to offline immediately.
 
 ### Set up named scripts
 
@@ -275,6 +282,26 @@ If `target_dir` does not contain a git repository, a fresh clone is performed. O
   }
 }
 ```
+
+### Broadcast to all online agents
+
+Use `POST /api/v1/tasks/broadcast` to send the same task to every agent that is currently online. The server fans out one task per agent and returns all task IDs:
+
+```bash
+curl -X POST https://your-server.example.com/api/v1/tasks/broadcast \
+  -H "Authorization: Bearer $RASPIDEPLOY_SECRET" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "type": "named_script",
+    "payload": {
+      "name": "deploy-myapp",
+      "config": { "ref": "v1.2.3" }
+    }
+  }'
+# [{"agent_id":"raspi-living-room","task_id":"abc123"},{"agent_id":"raspi-garage","task_id":"def456"}]
+```
+
+See [`examples/github-actions/write-commit-id.yml`](examples/github-actions/write-commit-id.yml) for a full broadcast workflow that polls all returned task IDs.
 
 ### GitHub Actions
 
@@ -393,18 +420,32 @@ curl -s https://your-server.example.com/api/v1/agents \
 
 ## API Reference
 
-All endpoints except `/health` require `Authorization: Bearer <secret>`.
+Endpoints are split by which secret they require.
+
+**Unauthenticated**
 
 | Method | Path | Description |
 |--------|------|-------------|
 | `GET` | `/health` | Server health check |
-| `GET` | `/api/v1/agents` | List registered agents |
+
+**Agent secret** (`RASPIDEPLOY_AGENT_SECRET`)
+
+| Method | Path | Description |
+|--------|------|-------------|
 | `POST` | `/api/v1/agents/heartbeat` | Agent registration/keep-alive |
-| `GET` | `/api/v1/agents/{id}/tasks` | Pending tasks for one agent |
-| `POST` | `/api/v1/tasks` | Create a task |
+| `POST` | `/api/v1/agents/{id}/disconnect` | Agent graceful shutdown notification |
+| `GET` | `/api/v1/agents/{id}/tasks` | Pending tasks for one agent (supports `?wait=1` for long polling) |
+| `POST` | `/api/v1/tasks/{id}/result` | Agent reports task progress/completion |
+
+**CI secret** (`RASPIDEPLOY_SECRET`)
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/v1/agents` | List registered agents |
+| `POST` | `/api/v1/tasks` | Create a task for a specific agent |
+| `POST` | `/api/v1/tasks/broadcast` | Create the same task for all online agents |
 | `GET` | `/api/v1/tasks` | List tasks (`?agent_id=`, `?status=`) |
 | `GET` | `/api/v1/tasks/{id}` | Get a single task |
-| `POST` | `/api/v1/tasks/{id}/result` | Agent reports task progress/completion |
 
 ### Task statuses
 
