@@ -2,6 +2,7 @@ package agent
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -32,7 +33,8 @@ func NewClient(serverURL, agentID, secret string) *Client {
 }
 
 // do builds and executes an authenticated HTTP request.
-func (c *Client) do(method, path string, body interface{}) (*http.Response, error) {
+// The request is cancelled when ctx is done.
+func (c *Client) do(ctx context.Context, method, path string, body interface{}) (*http.Response, error) {
 	var bodyReader *bytes.Buffer
 	if body != nil {
 		b, err := json.Marshal(body)
@@ -44,7 +46,7 @@ func (c *Client) do(method, path string, body interface{}) (*http.Response, erro
 		bodyReader = &bytes.Buffer{}
 	}
 
-	req, err := http.NewRequest(method, c.serverURL+path, bodyReader)
+	req, err := http.NewRequestWithContext(ctx, method, c.serverURL+path, bodyReader)
 	if err != nil {
 		return nil, err
 	}
@@ -62,8 +64,8 @@ func checkStatus(resp *http.Response) error {
 }
 
 // SendHeartbeat registers or refreshes this agent on the server.
-func (c *Client) SendHeartbeat(hostname, version string) error {
-	resp, err := c.do(http.MethodPost, "/api/v1/agents/heartbeat", models.HeartbeatRequest{
+func (c *Client) SendHeartbeat(ctx context.Context, hostname, version string) error {
+	resp, err := c.do(ctx, http.MethodPost, "/api/v1/agents/heartbeat", models.HeartbeatRequest{
 		AgentID:  c.agentID,
 		Hostname: hostname,
 		Version:  version,
@@ -80,8 +82,9 @@ func (c *Client) SendHeartbeat(hostname, version string) error {
 }
 
 // FetchTasks retrieves pending tasks assigned to this agent.
-func (c *Client) FetchTasks() ([]*models.Task, error) {
-	resp, err := c.do(http.MethodGet, "/api/v1/agents/"+c.agentID+"/tasks?wait=1", nil)
+// Blocks up to ~30 s waiting for a task (long poll).
+func (c *Client) FetchTasks(ctx context.Context) ([]*models.Task, error) {
+	resp, err := c.do(ctx, http.MethodGet, "/api/v1/agents/"+c.agentID+"/tasks?wait=1", nil)
 	if err != nil {
 		return nil, fmt.Errorf("fetch tasks: %w", err)
 	}
@@ -98,8 +101,8 @@ func (c *Client) FetchTasks() ([]*models.Task, error) {
 }
 
 // Disconnect notifies the server that this agent is going offline.
-func (c *Client) Disconnect() error {
-	resp, err := c.do(http.MethodPost, "/api/v1/agents/"+c.agentID+"/disconnect", nil)
+func (c *Client) Disconnect(ctx context.Context) error {
+	resp, err := c.do(ctx, http.MethodPost, "/api/v1/agents/"+c.agentID+"/disconnect", nil)
 	if err != nil {
 		return fmt.Errorf("disconnect: %w", err)
 	}
@@ -111,8 +114,8 @@ func (c *Client) Disconnect() error {
 }
 
 // ReportResult sends a task status update or final result to the server.
-func (c *Client) ReportResult(taskID string, result models.TaskResultRequest) error {
-	resp, err := c.do(http.MethodPost, "/api/v1/tasks/"+taskID+"/result", result)
+func (c *Client) ReportResult(ctx context.Context, taskID string, result models.TaskResultRequest) error {
+	resp, err := c.do(ctx, http.MethodPost, "/api/v1/tasks/"+taskID+"/result", result)
 	if err != nil {
 		return fmt.Errorf("report result: %w", err)
 	}

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"math/rand"
 	"os"
@@ -96,23 +97,28 @@ func run(c *cli.Context) error {
 	client := agent.NewClient(c.String("server"), agentID, c.String("secret"))
 	executor := agent.NewExecutor(agentID, scriptsDir)
 
+	// ctx is cancelled the moment SIGINT/SIGTERM arrives, which immediately
+	// aborts any in-flight HTTP request (heartbeat or long-poll).
+	ctx, cancel := context.WithCancel(context.Background())
+
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+	go func() {
+		<-sigCh
+		cancel()
+	}()
 
 	utils.Logger.Infof("connecting to server ...")
 
 	bo := newBackoff(maxRetry)
 	fails := 0
 
-loop:
 	for {
-		select {
-		case <-sigCh:
-			break loop
-		default:
+		if ctx.Err() != nil {
+			break
 		}
 
-		if poll(client, executor, agentID, hostname) {
+		if poll(ctx, client, executor, agentID, hostname) {
 			if fails > 0 {
 				utils.Logger.Infof("connection restored after %d failure(s)", fails)
 				fails = 0
@@ -121,19 +127,26 @@ loop:
 			continue
 		}
 
+		// poll returned false: either a real error or the context was cancelled.
+		if ctx.Err() != nil {
+			break
+		}
+
 		fails++
 		delay := bo.next()
 		utils.Logger.Warnf("connection failed (attempt %d), retrying in %s ...", fails, delay.Round(time.Millisecond))
 
 		select {
-		case <-sigCh:
-			break loop
+		case <-ctx.Done():
 		case <-time.After(delay):
 		}
 	}
 
 	utils.Logger.Info("agent shutting down")
-	if err := client.Disconnect(); err != nil {
+	// Use a fresh context for disconnect — the main ctx is already cancelled.
+	disconnectCtx, disconnectCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer disconnectCancel()
+	if err := client.Disconnect(disconnectCtx); err != nil {
 		utils.Logger.Warnf("disconnect failed: %v", err)
 	}
 	return nil
@@ -179,13 +192,13 @@ func (b *backoff) reset() {
 
 // poll sends a heartbeat, fetches pending tasks (long-polling), and executes
 // them. Returns true on success, false if a network/server error occurred.
-func poll(client *agent.Client, executor *agent.Executor, agentID, hostname string) bool {
-	if err := client.SendHeartbeat(hostname, version); err != nil {
+func poll(ctx context.Context, client *agent.Client, executor *agent.Executor, agentID, hostname string) bool {
+	if err := client.SendHeartbeat(ctx, hostname, version); err != nil {
 		utils.Logger.Warnf("heartbeat failed: %v", err)
 		return false
 	}
 
-	tasks, err := client.FetchTasks()
+	tasks, err := client.FetchTasks(ctx)
 	if err != nil {
 		utils.Logger.Warnf("fetch tasks failed: %v", err)
 		return false
@@ -196,14 +209,14 @@ func poll(client *agent.Client, executor *agent.Executor, agentID, hostname stri
 
 		// Tell the server we have started before executing — if we crash
 		// mid-task the server will show "running" rather than "pending".
-		_ = client.ReportResult(task.ID, models.TaskResultRequest{
+		_ = client.ReportResult(ctx, task.ID, models.TaskResultRequest{
 			AgentID: agentID,
 			Status:  models.TaskStatusRunning,
 		})
 
 		result := executor.Run(task)
 
-		if err := client.ReportResult(task.ID, result); err != nil {
+		if err := client.ReportResult(ctx, task.ID, result); err != nil {
 			utils.Logger.Errorf("report result failed for task %s: %v", task.ID, err)
 		}
 	}
