@@ -31,7 +31,7 @@ func (e *Executor) Run(task *models.Task) models.TaskResultRequest {
 	start := time.Now()
 	result := models.TaskResultRequest{AgentID: e.agentID}
 
-	utils.Logger.Infof("executing task %s (type: %s)", task.ID, task.Type)
+	utils.Logger.Infof("Executing task %s (type: %s)", task.ID, task.Type)
 
 	switch task.Type {
 	case models.TaskTypeDeploy:
@@ -49,10 +49,10 @@ func (e *Executor) Run(task *models.Task) models.TaskResultRequest {
 	result.DurationMs = time.Since(start).Milliseconds()
 	if result.Error == "" {
 		result.Status = models.TaskStatusCompleted
-		utils.Logger.Infof("task %s completed in %dms", task.ID, result.DurationMs)
+		utils.Logger.Infof("Task %s completed in %dms", task.ID, result.DurationMs)
 	} else {
 		result.Status = models.TaskStatusFailed
-		utils.Logger.Errorf("task %s failed: %s", task.ID, result.Error)
+		utils.Logger.Errorf("Task %s failed: %s", task.ID, result.Error)
 	}
 	return result
 }
@@ -106,7 +106,7 @@ func (e *Executor) namedScript(task *models.Task) (output, errMsg string) {
 	cmd.Stdout = &buf
 	cmd.Stderr = &buf
 
-	utils.Logger.Infof("running script %s (task %s)", scriptPath, task.ID)
+	utils.Logger.Infof("Running script %s (task %s)", scriptPath, task.ID)
 
 	if err := cmd.Run(); err != nil {
 		return buf.String(), err.Error()
@@ -189,19 +189,19 @@ func (e *Executor) deploy(payload map[string]interface{}) (output, errMsg string
 		ref = "main"
 	}
 
-	utils.Logger.Infof("deploy: repo=%s ref=%s dir=%s", repoURL, ref, targetDir)
+	utils.Logger.Infof("Deploy: repo=%s ref=%s dir=%s", repoURL, ref, targetDir)
 
 	var buf bytes.Buffer
 
 	_, statErr := os.Stat(targetDir + "/.git")
 	switch {
 	case os.IsNotExist(statErr):
-		utils.Logger.Infof("deploy: cloning %s (branch/tag: %s)", repoURL, ref)
+		utils.Logger.Infof("Deploy: cloning %s (branch/tag: %s)", repoURL, ref)
 		if err := runCmd(&buf, "", "git", "clone", "--branch", ref, repoURL, targetDir); err != nil {
 			return buf.String(), err.Error()
 		}
 	case statErr == nil:
-		utils.Logger.Infof("deploy: updating existing repo at %s to %s", targetDir, ref)
+		utils.Logger.Infof("Deploy: updating existing repo at %s to %s", targetDir, ref)
 		if err := runCmd(&buf, "", "git", "-C", targetDir, "fetch", "--tags", "--prune", "origin"); err != nil {
 			return buf.String(), err.Error()
 		}
@@ -220,7 +220,7 @@ func (e *Executor) deploy(payload map[string]interface{}) (output, errMsg string
 		if !ok {
 			continue
 		}
-		utils.Logger.Infof("deploy: running command: %s", line)
+		utils.Logger.Infof("Deploy: running command: %s", line)
 		fmt.Fprintf(&buf, "$ %s\n", line)
 		if err := runCmd(&buf, targetDir, "bash", "-c", line); err != nil {
 			return buf.String(), err.Error()
@@ -237,7 +237,7 @@ func (e *Executor) script(payload map[string]interface{}) (output, errMsg string
 	if script == "" {
 		return "", "missing script in payload"
 	}
-	utils.Logger.Infof("script: running inline script (%d bytes)", len(script))
+	utils.Logger.Infof("Script: running inline script (%d bytes)", len(script))
 	var buf bytes.Buffer
 	if err := runCmd(&buf, "", "bash", "-c", script); err != nil {
 		return buf.String(), err.Error()
@@ -252,7 +252,7 @@ func (e *Executor) restart(payload map[string]interface{}) (output, errMsg strin
 	if service == "" {
 		return "", "missing service in payload"
 	}
-	utils.Logger.Infof("restart: service=%s", service)
+	utils.Logger.Infof("Restart: service=%s", service)
 	var buf bytes.Buffer
 	if err := runCmd(&buf, "", "systemctl", "restart", service); err != nil {
 		return buf.String(), err.Error()

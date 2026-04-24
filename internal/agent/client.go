@@ -77,7 +77,7 @@ func (c *Client) SendHeartbeat(ctx context.Context, hostname, version string) er
 	if err := checkStatus(resp); err != nil {
 		return fmt.Errorf("heartbeat: %w", err)
 	}
-	utils.Logger.Debugf("heartbeat sent")
+	utils.Logger.Debugf("Heartbeat sent")
 	return nil
 }
 
@@ -96,7 +96,7 @@ func (c *Client) FetchTasks(ctx context.Context) ([]*models.Task, error) {
 	if err := json.NewDecoder(resp.Body).Decode(&tasks); err != nil {
 		return nil, fmt.Errorf("decode tasks: %w", err)
 	}
-	utils.Logger.Debugf("fetched %d task(s)", len(tasks))
+	utils.Logger.Debugf("Fetched %d task(s)", len(tasks))
 	return tasks, nil
 }
 
@@ -123,6 +123,6 @@ func (c *Client) ReportResult(ctx context.Context, taskID string, result models.
 	if err := checkStatus(resp); err != nil {
 		return fmt.Errorf("report result: %w", err)
 	}
-	utils.Logger.Debugf("reported %s for task %s", result.Status, taskID)
+	utils.Logger.Debugf("Reported %s for task %s", result.Status, taskID)
 	return nil
 }

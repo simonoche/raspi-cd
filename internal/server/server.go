@@ -13,6 +13,7 @@ import (
 // Server is the central control server.
 type Server struct {
 	bindAddr     string
+	version      string
 	ciSecret     string // used by CI/CD pipelines to create/read tasks
 	agentSecret  string // used by agents to heartbeat, fetch tasks, and report results
 	agentTimeout time.Duration
@@ -24,9 +25,10 @@ type Server struct {
 }
 
 // New creates and configures a Server.
-func New(bindAddr, ciSecret, agentSecret string, agentTimeout time.Duration) *Server {
+func New(bindAddr, ciSecret, agentSecret, version string, agentTimeout time.Duration) *Server {
 	s := &Server{
 		bindAddr:     bindAddr,
+		version:      version,
 		ciSecret:     ciSecret,
 		agentSecret:  agentSecret,
 		agentTimeout: agentTimeout,
@@ -46,15 +48,15 @@ func (s *Server) Start() error {
 
 	s.httpSrv = &http.Server{
 		Addr:    s.bindAddr,
-		Handler: s.router,
+		Handler: s.withVersion(s.router),
 	}
-	utils.Logger.Infof("server listening on %s (agent timeout: %s)", s.bindAddr, s.agentTimeout)
+	utils.Logger.Infof("Server listening on %s (agent timeout: %s)", s.bindAddr, s.agentTimeout)
 	return s.httpSrv.ListenAndServe()
 }
 
 // Stop shuts down the server.
 func (s *Server) Stop() error {
-	utils.Logger.Info("server shutting down")
+	utils.Logger.Info("Server shutting down")
 	if s.cancel != nil {
 		s.cancel()
 	}
@@ -72,7 +74,7 @@ func (s *Server) staleSweep(ctx context.Context) {
 	if interval < 2*time.Second {
 		interval = 2 * time.Second
 	}
-	utils.Logger.Debugf("stale agent sweep every %s", interval)
+	utils.Logger.Debugf("Stale agent sweep every %s", interval)
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 	for {
@@ -81,7 +83,7 @@ func (s *Server) staleSweep(ctx context.Context) {
 			return
 		case <-ticker.C:
 			for _, id := range s.store.markStaleAgents(s.agentTimeout) {
-				utils.Logger.Warnf("agent %s marked offline (no heartbeat for >%s)", id, s.agentTimeout)
+				utils.Logger.Warnf("Agent %s marked offline (no heartbeat for >%s)", id, s.agentTimeout)
 			}
 		}
 	}
@@ -104,6 +106,14 @@ func (s *Server) routes() {
 	s.router.HandleFunc("/api/v1/tasks/{id}", s.authCI(s.handleTask))
 }
 
+// withVersion wraps a handler to set X-Raspideploy-Version on every response.
+func (s *Server) withVersion(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Raspideploy-Version", s.version)
+		next.ServeHTTP(w, r)
+	})
+}
+
 func (s *Server) authAgent(next http.HandlerFunc) http.HandlerFunc {
 	return s.authWith(s.agentSecret, next)
 }
@@ -119,7 +129,7 @@ func (s *Server) authWith(secret string, next http.HandlerFunc) http.HandlerFunc
 		header := r.Header.Get("Authorization")
 		token, _ := strings.CutPrefix(header, "Bearer ")
 		if subtle.ConstantTimeCompare([]byte(token), []byte(secret)) != 1 {
-			utils.Logger.Warnf("unauthorized %s %s from %s", r.Method, r.URL.Path, r.RemoteAddr)
+			utils.Logger.Warnf("Unauthorized %s %s from %s", r.Method, r.URL.Path, r.RemoteAddr)
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}

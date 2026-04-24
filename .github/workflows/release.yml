@@ -106,6 +106,7 @@ jobs:
           file: Dockerfile.server
           platforms: linux/amd64,linux/arm64
           push: true
+          build-args: VERSION=${{ github.ref_name }}
           tags: |
             ghcr.io/${{ github.repository }}:latest
             ghcr.io/${{ github.repository }}:${{ github.ref_name }}

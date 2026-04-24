@@ -38,7 +38,7 @@ func newID() string {
 }
 
 func methodNotAllowed(w http.ResponseWriter, r *http.Request) {
-	utils.Logger.Warnf("method not allowed: %s %s", r.Method, r.URL.Path)
+	utils.Logger.Warnf("Method not allowed: %s %s", r.Method, r.URL.Path)
 	http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 }
 
@@ -63,7 +63,7 @@ func (s *Server) handleAgents(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	agents := s.store.listAgents()
-	utils.Logger.Debugf("list agents: %d registered", len(agents))
+	utils.Logger.Debugf("List agents: %d registered", len(agents))
 	writeJSON(w, http.StatusOK, agents)
 }
 
@@ -75,7 +75,7 @@ func (s *Server) handleHeartbeat(w http.ResponseWriter, r *http.Request) {
 	}
 	var req models.HeartbeatRequest
 	if err := readJSON(r, &req); err != nil || req.AgentID == "" {
-		utils.Logger.Warnf("heartbeat: invalid request body from %s", r.RemoteAddr)
+		utils.Logger.Warnf("Heartbeat: invalid request body from %s", r.RemoteAddr)
 		http.Error(w, "invalid request body", http.StatusBadRequest)
 		return
 	}
@@ -94,11 +94,11 @@ func (s *Server) handleHeartbeat(w http.ResponseWriter, r *http.Request) {
 
 	switch {
 	case !exists:
-		utils.Logger.Infof("agent registered: %s (%s) v%s", req.AgentID, req.Hostname, req.Version)
+		utils.Logger.Infof("Agent registered: %s (%s) v%s", req.AgentID, req.Hostname, req.Version)
 	case existing.Status == "offline":
-		utils.Logger.Infof("agent back online: %s (%s)", req.AgentID, req.Hostname)
+		utils.Logger.Infof("Agent back online: %s (%s)", req.AgentID, req.Hostname)
 	default:
-		utils.Logger.Debugf("heartbeat from %s (%s)", req.AgentID, req.Hostname)
+		utils.Logger.Debugf("Heartbeat from %s (%s)", req.AgentID, req.Hostname)
 	}
 
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
@@ -112,9 +112,9 @@ func (s *Server) handleAgentDisconnect(w http.ResponseWriter, r *http.Request) {
 	}
 	agentID := r.PathValue("id")
 	if s.store.setAgentOffline(agentID) {
-		utils.Logger.Infof("agent disconnected: %s", agentID)
+		utils.Logger.Infof("Agent disconnected: %s", agentID)
 	} else {
-		utils.Logger.Warnf("disconnect request for unknown agent: %s", agentID)
+		utils.Logger.Warnf("Disconnect request for unknown agent: %s", agentID)
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
@@ -131,13 +131,13 @@ func (s *Server) handleAgentTasks(w http.ResponseWriter, r *http.Request) {
 
 	tasks := s.store.listTasks(agentID, string(models.TaskStatusPending))
 	if len(tasks) > 0 {
-		utils.Logger.Infof("dispatching %d pending task(s) to agent %s", len(tasks), agentID)
+		utils.Logger.Infof("Dispatching %d pending task(s) to agent %s", len(tasks), agentID)
 		writeJSON(w, http.StatusOK, tasks)
 		return
 	}
 
 	if r.URL.Query().Get("wait") == "" {
-		utils.Logger.Debugf("no pending tasks for agent %s", agentID)
+		utils.Logger.Debugf("No pending tasks for agent %s", agentID)
 		writeJSON(w, http.StatusOK, tasks)
 		return
 	}
@@ -149,7 +149,7 @@ func (s *Server) handleAgentTasks(w http.ResponseWriter, r *http.Request) {
 
 	tasks = s.store.listTasks(agentID, string(models.TaskStatusPending))
 	if len(tasks) > 0 {
-		utils.Logger.Infof("dispatching %d pending task(s) to agent %s", len(tasks), agentID)
+		utils.Logger.Infof("Dispatching %d pending task(s) to agent %s", len(tasks), agentID)
 		writeJSON(w, http.StatusOK, tasks)
 		return
 	}
@@ -161,10 +161,10 @@ func (s *Server) handleAgentTasks(w http.ResponseWriter, r *http.Request) {
 	case <-ch:
 		tasks = s.store.listTasks(agentID, string(models.TaskStatusPending))
 		if len(tasks) > 0 {
-			utils.Logger.Infof("dispatching %d pending task(s) to agent %s", len(tasks), agentID)
+			utils.Logger.Infof("Dispatching %d pending task(s) to agent %s", len(tasks), agentID)
 		}
 	case <-ctx.Done():
-		utils.Logger.Debugf("long-poll timeout for agent %s", agentID)
+		utils.Logger.Debugf("Long-poll timeout for agent %s", agentID)
 	}
 
 	writeJSON(w, http.StatusOK, tasks)
@@ -181,7 +181,7 @@ func (s *Server) handleBroadcastTask(w http.ResponseWriter, r *http.Request) {
 	}
 	var req models.BroadcastTaskRequest
 	if err := readJSON(r, &req); err != nil || req.Type == "" {
-		utils.Logger.Warnf("broadcast task: invalid request body from %s", r.RemoteAddr)
+		utils.Logger.Warnf("Broadcast task: invalid request body from %s", r.RemoteAddr)
 		http.Error(w, "invalid request body", http.StatusBadRequest)
 		return
 	}
@@ -214,7 +214,7 @@ func (s *Server) handleBroadcastTask(w http.ResponseWriter, r *http.Request) {
 	for _, item := range results {
 		s.notifier.notify(item.AgentID)
 	}
-	utils.Logger.Infof("broadcast task (type=%s) created for %d agent(s)", req.Type, len(results))
+	utils.Logger.Infof("Broadcast task (type=%s) created for %d agent(s)", req.Type, len(results))
 	writeJSON(w, http.StatusCreated, results)
 }
 
@@ -225,18 +225,18 @@ func (s *Server) handleTasks(w http.ResponseWriter, r *http.Request) {
 		agentID := r.URL.Query().Get("agent_id")
 		status := r.URL.Query().Get("status")
 		tasks := s.store.listTasks(agentID, status)
-		utils.Logger.Debugf("list tasks: %d results (agent_id=%q status=%q)", len(tasks), agentID, status)
+		utils.Logger.Debugf("List tasks: %d results (agent_id=%q status=%q)", len(tasks), agentID, status)
 		writeJSON(w, http.StatusOK, tasks)
 
 	case http.MethodPost:
 		var req models.CreateTaskRequest
 		if err := readJSON(r, &req); err != nil {
-			utils.Logger.Warnf("create task: invalid request body from %s", r.RemoteAddr)
+			utils.Logger.Warnf("Create task: invalid request body from %s", r.RemoteAddr)
 			http.Error(w, "invalid request body", http.StatusBadRequest)
 			return
 		}
 		if req.Type == "" || req.AgentID == "" {
-			utils.Logger.Warnf("create task: missing type or agent_id from %s", r.RemoteAddr)
+			utils.Logger.Warnf("Create task: missing type or agent_id from %s", r.RemoteAddr)
 			http.Error(w, "type and agent_id are required", http.StatusBadRequest)
 			return
 		}
@@ -251,7 +251,7 @@ func (s *Server) handleTasks(w http.ResponseWriter, r *http.Request) {
 		}
 		s.store.createTask(task)
 		s.notifier.notify(task.AgentID)
-		utils.Logger.Infof("task %s created: type=%s agent=%s", task.ID, task.Type, task.AgentID)
+		utils.Logger.Infof("Task %s created: type=%s agent=%s", task.ID, task.Type, task.AgentID)
 		writeJSON(w, http.StatusCreated, map[string]string{"id": task.ID})
 
 	default:
@@ -268,11 +268,11 @@ func (s *Server) handleTask(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	task, ok := s.store.getTask(id)
 	if !ok {
-		utils.Logger.Warnf("task %s not found", id)
+		utils.Logger.Warnf("Task %s not found", id)
 		http.Error(w, fmt.Sprintf("task %s not found", id), http.StatusNotFound)
 		return
 	}
-	utils.Logger.Debugf("get task %s (status: %s)", id, task.Status)
+	utils.Logger.Debugf("Get task %s (status: %s)", id, task.Status)
 	writeJSON(w, http.StatusOK, task)
 }
 
@@ -285,20 +285,20 @@ func (s *Server) handleTaskResult(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	var req models.TaskResultRequest
 	if err := readJSON(r, &req); err != nil {
-		utils.Logger.Warnf("task result: invalid request body for task %s from %s", id, r.RemoteAddr)
+		utils.Logger.Warnf("Task result: invalid request body for task %s from %s", id, r.RemoteAddr)
 		http.Error(w, "invalid request body", http.StatusBadRequest)
 		return
 	}
 	s.store.updateTask(id, req.Status, req.Output, req.Error)
 	switch req.Status {
 	case models.TaskStatusRunning:
-		utils.Logger.Infof("task %s running (agent: %s)", id, req.AgentID)
+		utils.Logger.Infof("Task %s running (agent: %s)", id, req.AgentID)
 	case models.TaskStatusCompleted:
-		utils.Logger.Infof("task %s completed in %dms (agent: %s)", id, req.DurationMs, req.AgentID)
+		utils.Logger.Infof("Task %s completed in %dms (agent: %s)", id, req.DurationMs, req.AgentID)
 	case models.TaskStatusFailed:
-		utils.Logger.Warnf("task %s failed in %dms (agent: %s): %s", id, req.DurationMs, req.AgentID, req.Error)
+		utils.Logger.Warnf("Task %s failed in %dms (agent: %s): %s", id, req.DurationMs, req.AgentID, req.Error)
 	default:
-		utils.Logger.Infof("task %s → %s (agent: %s)", id, req.Status, req.AgentID)
+		utils.Logger.Infof("Task %s → %s (agent: %s)", id, req.Status, req.AgentID)
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }

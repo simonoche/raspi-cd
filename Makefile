@@ -1,7 +1,7 @@
 .PHONY: build build-server build-agent build-agent-arm64 build-agent-armv7 \
         test clean docker-build docker-up docker-down docker-logs
 
-VERSION  ?= 0.1.0
+VERSION  ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
 LDFLAGS  := -ldflags="-s -w -X main.version=$(VERSION)"
 BIN      := bin
 

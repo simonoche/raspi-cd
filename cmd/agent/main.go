@@ -16,7 +16,7 @@ import (
 	"raspideploy/internal/utils"
 )
 
-var version = "0.1.0"
+var version = "dev"
 
 func main() {
 	app := &cli.App{
@@ -108,10 +108,12 @@ func run(c *cli.Context) error {
 		cancel()
 	}()
 
-	utils.Logger.Infof("connecting to server ...")
+	serverURL := c.String("server")
+	utils.Logger.Infof("Connecting to %s ...", serverURL)
 
 	bo := newBackoff(maxRetry)
 	fails := 0
+	connected := false
 
 	for {
 		if ctx.Err() != nil {
@@ -119,10 +121,13 @@ func run(c *cli.Context) error {
 		}
 
 		if poll(ctx, client, executor, agentID, hostname) {
-			if fails > 0 {
-				utils.Logger.Infof("connection restored after %d failure(s)", fails)
-				fails = 0
+			if !connected {
+				utils.Logger.Infof("Connected to %s", serverURL)
+				connected = true
+			} else if fails > 0 {
+				utils.Logger.Infof("Connection restored after %d failure(s)", fails)
 			}
+			fails = 0
 			bo.reset()
 			continue
 		}
@@ -134,7 +139,7 @@ func run(c *cli.Context) error {
 
 		fails++
 		delay := bo.next()
-		utils.Logger.Warnf("connection failed (attempt %d), retrying in %s ...", fails, delay.Round(time.Millisecond))
+		utils.Logger.Warnf("Connection failed (attempt %d), retrying in %s ...", fails, delay.Round(time.Millisecond))
 
 		select {
 		case <-ctx.Done():
@@ -194,18 +199,18 @@ func (b *backoff) reset() {
 // them. Returns true on success, false if a network/server error occurred.
 func poll(ctx context.Context, client *agent.Client, executor *agent.Executor, agentID, hostname string) bool {
 	if err := client.SendHeartbeat(ctx, hostname, version); err != nil {
-		utils.Logger.Warnf("heartbeat failed: %v", err)
+		utils.Logger.Warnf("Heartbeat failed: %v", err)
 		return false
 	}
 
 	tasks, err := client.FetchTasks(ctx)
 	if err != nil {
-		utils.Logger.Warnf("fetch tasks failed: %v", err)
+		utils.Logger.Warnf("Fetch tasks failed: %v", err)
 		return false
 	}
 
 	for _, task := range tasks {
-		utils.Logger.Infof("picked up task %s (type: %s)", task.ID, task.Type)
+		utils.Logger.Infof("Picked up task %s (type: %s)", task.ID, task.Type)
 
 		// Tell the server we have started before executing — if we crash
 		// mid-task the server will show "running" rather than "pending".
@@ -217,7 +222,7 @@ func poll(ctx context.Context, client *agent.Client, executor *agent.Executor, a
 		result := executor.Run(task)
 
 		if err := client.ReportResult(ctx, task.ID, result); err != nil {
-			utils.Logger.Errorf("report result failed for task %s: %v", task.ID, err)
+			utils.Logger.Errorf("Report result failed for task %s: %v", task.ID, err)
 		}
 	}
 	return true

@@ -14,7 +14,7 @@ import (
 	"raspideploy/internal/utils"
 )
 
-var version = "0.1.0"
+var version = "dev"
 
 func main() {
 	app := &cli.App{
@@ -71,14 +71,14 @@ func run(c *cli.Context) error {
 	}
 	utils.Logger.Infof("RaspiDeploy server v%s", version)
 
-	srv := server.New(c.String("bind"), c.String("secret"), c.String("agent-secret"), c.Duration("agent-timeout"))
+	srv := server.New(c.String("bind"), c.String("secret"), c.String("agent-secret"), version, c.Duration("agent-timeout"))
 
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 
 	go func() {
 		if err := srv.Start(); err != nil && err != http.ErrServerClosed {
-			utils.Logger.Errorf("server error: %v", err)
+			utils.Logger.Errorf("Server error: %v", err)
 		}
 	}()
 
