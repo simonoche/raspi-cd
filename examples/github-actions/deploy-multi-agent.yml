@@ -1,0 +1,101 @@
+# Deploy to multiple Raspberry Pis in parallel.
+#
+# Uses a matrix strategy so each agent gets its own job with its own logs.
+# All deployments run concurrently. The workflow fails if any one of them fails.
+#
+# To add a Pi, extend the `include` list under `strategy.matrix`.
+# Each entry can override target_dir and commands independently.
+#
+# Required repository secrets:
+#   RASPIDEPLOY_SERVER  — e.g. https://deploy.example.com
+#   RASPIDEPLOY_SECRET  — the shared Bearer token secret
+
+name: Deploy (multi-agent)
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  RASPIDEPLOY_SERVER: ${{ secrets.RASPIDEPLOY_SERVER }}
+  RASPIDEPLOY_SECRET: ${{ secrets.RASPIDEPLOY_SECRET }}
+  POLL_INTERVAL: 10
+  TIMEOUT_STEPS: 30
+
+jobs:
+  deploy:
+    name: Deploy to ${{ matrix.agent_id }}
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false   # let all agents finish even if one fails
+      matrix:
+        include:
+          - agent_id: raspi-living-room
+            target_dir: /opt/myapp
+            commands: '["make build", "systemctl restart myapp"]'
+
+          - agent_id: raspi-garage
+            target_dir: /opt/myapp
+            commands: '["make build", "systemctl restart myapp"]'
+
+          - agent_id: raspi-office
+            target_dir: /opt/myapp
+            commands: '["make build", "systemctl restart myapp"]'
+
+    steps:
+      - name: Dispatch deploy task
+        id: dispatch
+        run: |
+          RESPONSE=$(curl -sf -X POST "$RASPIDEPLOY_SERVER/api/v1/tasks" \
+            -H "Authorization: Bearer $RASPIDEPLOY_SECRET" \
+            -H "Content-Type: application/json" \
+            -d '{
+              "type": "deploy",
+              "agent_id": "${{ matrix.agent_id }}",
+              "payload": {
+                "repo_url":   "https://github.com/${{ github.repository }}.git",
+                "ref":        "${{ github.ref_name }}",
+                "target_dir": "${{ matrix.target_dir }}",
+                "commands":   ${{ matrix.commands }}
+              }
+            }')
+
+          TASK_ID=$(echo "$RESPONSE" | jq -r .id)
+          echo "Task created: $TASK_ID"
+          echo "task_id=$TASK_ID" >> "$GITHUB_OUTPUT"
+
+      - name: Wait for deployment to complete
+        run: |
+          TASK_ID="${{ steps.dispatch.outputs.task_id }}"
+          echo "Polling task $TASK_ID on ${{ matrix.agent_id }} ..."
+
+          for i in $(seq 1 "$TIMEOUT_STEPS"); do
+            TASK=$(curl -sf "$RASPIDEPLOY_SERVER/api/v1/tasks/$TASK_ID" \
+              -H "Authorization: Bearer $RASPIDEPLOY_SECRET")
+
+            STATUS=$(echo "$TASK" | jq -r .status)
+            echo "[$i/$TIMEOUT_STEPS] status: $STATUS"
+
+            if [ "$STATUS" = "completed" ]; then
+              echo "Deployment succeeded on ${{ matrix.agent_id }}."
+              echo "--- output ---"
+              echo "$TASK" | jq -r .output
+              exit 0
+            fi
+
+            if [ "$STATUS" = "failed" ]; then
+              echo "Deployment failed on ${{ matrix.agent_id }}."
+              echo "--- error ---"
+              echo "$TASK" | jq -r .error
+              echo "--- output ---"
+              echo "$TASK" | jq -r .output
+              exit 1
+            fi
+
+            sleep "$POLL_INTERVAL"
+          done
+
+          echo "Timed out waiting for ${{ matrix.agent_id }}."
+          exit 1

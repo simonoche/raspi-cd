@@ -35,7 +35,26 @@ Keep this value — you will need it on both the server and every agent.
 
 ### Run with Docker Compose
 
-Clone this repository on your server host, then:
+Create a `docker-compose.yml` on your server host:
+
+```yaml
+services:
+  raspideploy-server:
+    image: ghcr.io/your-org/raspideploy:latest
+    container_name: raspideploy-server
+    restart: unless-stopped
+    environment:
+      RASPIDEPLOY_SECRET: "${RASPIDEPLOY_SECRET}"
+    ports:
+      - "8080:8080"
+    volumes:
+      - raspideploy-data:/data
+
+volumes:
+  raspideploy-data:
+```
+
+Then start it:
 
 ```bash
 export RASPIDEPLOY_SECRET=<your-secret>
@@ -75,21 +94,22 @@ your-server.example.com {
 
 ### Download the binary
 
-Grab the latest release for your Pi architecture from the [Releases](#) page, or cross-compile it yourself:
+Pre-built binaries for every release are attached to the [GitHub Releases](../../releases) page.
+
+On the Pi, download the binary that matches your architecture:
 
 ```bash
-# ARM64 (Pi 3, 4, 5 running 64-bit OS)
-make build-agent-arm64
+# Pi 3 / 4 / 5 running a 64-bit OS (most common)
+VERSION=v0.1.0
+curl -fsSL -o /tmp/raspideploy-agent \
+  "https://github.com/your-org/raspideploy/releases/download/${VERSION}/raspideploy-agent-linux-arm64"
 
-# ARMv7 (Pi 2, 3 running 32-bit OS)
-make build-agent-armv7
-```
+# Pi 2 / 3 running a 32-bit OS
+curl -fsSL -o /tmp/raspideploy-agent \
+  "https://github.com/your-org/raspideploy/releases/download/${VERSION}/raspideploy-agent-linux-armv7"
 
-Copy the binary to the Pi:
-
-```bash
-scp bin/raspideploy-agent-arm64 pi@192.168.1.10:/tmp/raspideploy-agent
-ssh pi@192.168.1.10 "sudo mv /tmp/raspideploy-agent /usr/local/bin/ && sudo chmod +x /usr/local/bin/raspideploy-agent"
+sudo mv /tmp/raspideploy-agent /usr/local/bin/raspideploy-agent
+sudo chmod +x /usr/local/bin/raspideploy-agent
 ```
 
 ### Configure the agent

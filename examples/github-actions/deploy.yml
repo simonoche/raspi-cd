@@ -1,0 +1,45 @@
+# Basic deployment workflow.
+#
+# Triggers on every push to main and dispatches a deploy task to one agent.
+# The workflow finishes as soon as the task is accepted by the server —
+# it does NOT wait for the Pi to finish executing it.
+# See deploy-and-wait.yml if you need CI to fail when the deployment fails.
+#
+# Required repository secrets:
+#   RASPIDEPLOY_SERVER  — e.g. https://deploy.example.com
+#   RASPIDEPLOY_SECRET  — the shared Bearer token secret
+
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    name: Dispatch deploy task
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Send deploy task to RaspiDeploy
+        run: |
+          curl -sf -X POST "$RASPIDEPLOY_SERVER/api/v1/tasks" \
+            -H "Authorization: Bearer $RASPIDEPLOY_SECRET" \
+            -H "Content-Type: application/json" \
+            -d '{
+              "type": "deploy",
+              "agent_id": "raspi-living-room",
+              "payload": {
+                "repo_url":   "https://github.com/${{ github.repository }}.git",
+                "ref":        "${{ github.ref_name }}",
+                "target_dir": "/opt/myapp",
+                "commands":   [
+                  "make build",
+                  "systemctl restart myapp"
+                ]
+              }
+            }'
+        env:
+          RASPIDEPLOY_SERVER: ${{ secrets.RASPIDEPLOY_SERVER }}
+          RASPIDEPLOY_SECRET: ${{ secrets.RASPIDEPLOY_SECRET }}

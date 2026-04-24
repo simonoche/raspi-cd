@@ -1,0 +1,91 @@
+# Deploy and wait for the result.
+#
+# Dispatches a deploy task, then polls the server every 10 seconds until the
+# agent reports completion. The CI job fails if the deployment fails or if it
+# does not complete within the timeout (default: 5 minutes).
+#
+# Use this when you need the pipeline to reflect whether the Pi actually
+# succeeded — e.g. before merging to a release branch or sending a notification.
+#
+# Required repository secrets:
+#   RASPIDEPLOY_SERVER  — e.g. https://deploy.example.com
+#   RASPIDEPLOY_SECRET  — the shared Bearer token secret
+
+name: Deploy and wait
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  RASPIDEPLOY_SERVER: ${{ secrets.RASPIDEPLOY_SERVER }}
+  RASPIDEPLOY_SECRET: ${{ secrets.RASPIDEPLOY_SECRET }}
+  AGENT_ID: raspi-living-room
+  TARGET_DIR: /opt/myapp
+  POLL_INTERVAL: 10   # seconds between status checks
+  TIMEOUT_STEPS: 30   # 30 × 10s = 5 minutes
+
+jobs:
+  deploy:
+    name: Deploy to ${{ env.AGENT_ID }}
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Dispatch deploy task
+        id: dispatch
+        run: |
+          RESPONSE=$(curl -sf -X POST "$RASPIDEPLOY_SERVER/api/v1/tasks" \
+            -H "Authorization: Bearer $RASPIDEPLOY_SECRET" \
+            -H "Content-Type: application/json" \
+            -d '{
+              "type": "deploy",
+              "agent_id": "'"$AGENT_ID"'",
+              "payload": {
+                "repo_url":   "https://github.com/${{ github.repository }}.git",
+                "ref":        "${{ github.ref_name }}",
+                "target_dir": "'"$TARGET_DIR"'",
+                "commands":   [
+                  "make build",
+                  "systemctl restart myapp"
+                ]
+              }
+            }')
+
+          TASK_ID=$(echo "$RESPONSE" | jq -r .id)
+          echo "Task created: $TASK_ID"
+          echo "task_id=$TASK_ID" >> "$GITHUB_OUTPUT"
+
+      - name: Wait for deployment to complete
+        run: |
+          TASK_ID="${{ steps.dispatch.outputs.task_id }}"
+          echo "Polling task $TASK_ID (timeout: $((TIMEOUT_STEPS * POLL_INTERVAL))s) ..."
+
+          for i in $(seq 1 "$TIMEOUT_STEPS"); do
+            TASK=$(curl -sf "$RASPIDEPLOY_SERVER/api/v1/tasks/$TASK_ID" \
+              -H "Authorization: Bearer $RASPIDEPLOY_SECRET")
+
+            STATUS=$(echo "$TASK" | jq -r .status)
+            echo "[$i/$TIMEOUT_STEPS] status: $STATUS"
+
+            if [ "$STATUS" = "completed" ]; then
+              echo "Deployment succeeded."
+              echo "--- output ---"
+              echo "$TASK" | jq -r .output
+              exit 0
+            fi
+
+            if [ "$STATUS" = "failed" ]; then
+              echo "Deployment failed."
+              echo "--- error ---"
+              echo "$TASK" | jq -r .error
+              echo "--- output ---"
+              echo "$TASK" | jq -r .output
+              exit 1
+            fi
+
+            sleep "$POLL_INTERVAL"
+          done
+
+          echo "Timed out waiting for deployment."
+          exit 1

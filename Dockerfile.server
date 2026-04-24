@@ -9,7 +9,11 @@ COPY go.mod go.sum ./
 RUN go mod download
 
 COPY . .
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
+# TARGETOS / TARGETARCH are injected by Docker Buildx so the Go cross-compiler
+# is used natively instead of running under QEMU emulation (much faster).
+ARG TARGETOS=linux
+ARG TARGETARCH=amd64
+RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
     go build -ldflags="-s -w" -o raspideploy-server ./cmd/server
 
 # Runtime stage
