@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"strings"
 	"time"
@@ -63,12 +64,24 @@ func checkStatus(resp *http.Response) error {
 	return fmt.Errorf("server %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
 }
 
+// localIP returns the host's preferred outbound IP address by dialling a UDP
+// address. No packet is actually sent — the kernel just selects a route.
+func localIP() string {
+	conn, err := net.Dial("udp", "8.8.8.8:80")
+	if err != nil {
+		return ""
+	}
+	defer conn.Close()
+	return conn.LocalAddr().(*net.UDPAddr).IP.String()
+}
+
 // SendHeartbeat registers or refreshes this agent on the server.
 func (c *Client) SendHeartbeat(ctx context.Context, hostname, version string) error {
 	resp, err := c.do(ctx, http.MethodPost, "/api/v1/agents/heartbeat", models.HeartbeatRequest{
-		AgentID:  c.agentID,
-		Hostname: hostname,
-		Version:  version,
+		AgentID:   c.agentID,
+		Hostname:  hostname,
+		IPAddress: localIP(),
+		Version:   version,
 	})
 	if err != nil {
 		return fmt.Errorf("heartbeat: %w", err)
