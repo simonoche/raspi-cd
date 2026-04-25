@@ -20,6 +20,10 @@ type store interface {
 	// is older than threshold. Returns the IDs of newly-offline agents.
 	markStaleAgents(threshold time.Duration) []string
 
+	// touchAgent updates LastHeartbeat for agentID without persisting.
+	// Used by the WebSocket pong handler to keep the stale-sweep happy.
+	touchAgent(id string) bool
+
 	createTask(task *models.Task)
 	getTask(id string) (*models.Task, bool)
 	listTasks(agentID, status string) []*models.Task
@@ -125,6 +129,17 @@ func (s *memStore) listAgents() []*models.Agent {
 		out = append(out, a)
 	}
 	return out
+}
+
+func (s *memStore) touchAgent(id string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	a, ok := s.agents[id]
+	if !ok {
+		return false
+	}
+	a.LastHeartbeat = time.Now()
+	return true
 }
 
 func (s *memStore) setAgentOffline(id string) bool {

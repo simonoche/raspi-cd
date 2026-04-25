@@ -14,7 +14,6 @@ import (
 	"github.com/urfave/cli/v2"
 
 	"raspicd/internal/agent"
-	"raspicd/internal/models"
 	"raspicd/internal/utils"
 )
 
@@ -29,7 +28,7 @@ func main() {
 			&cli.StringFlag{
 				Name:     "server",
 				Aliases:  []string{"s"},
-				Usage:    "server base URL",
+				Usage:    "server base URL (http:// or https://)",
 				EnvVars:  []string{"RASPICD_SERVER"},
 				Required: true,
 			},
@@ -57,7 +56,7 @@ func main() {
 			&cli.DurationFlag{
 				Name:    "interval",
 				Aliases: []string{"i"},
-				Usage:   "maximum retry delay after a failed server connection (exponential backoff from 1s up to this value)",
+				Usage:   "maximum retry delay after a failed connection (exponential backoff from 1s up to this value)",
 				Value:   60 * time.Second,
 				EnvVars: []string{"RASPICD_POLL_INTERVAL"},
 			},
@@ -98,9 +97,10 @@ func run(c *cli.Context) error {
 	hostname := c.String("hostname")
 	maxRetry := c.Duration("interval")
 	scriptsDir := c.String("scripts-dir")
+	serverURL := c.String("server")
 
 	utils.Logger.Infof("RasPiCD Agent %s  id=%s  server=%s  max-retry=%s  scripts=%s",
-		version, agentID, c.String("server"), maxRetry, scriptsDir)
+		version, agentID, serverURL, maxRetry, scriptsDir)
 
 	var verifyKey ed25519.PublicKey
 	if vkHex := c.String("verify-key"); vkHex != "" {
@@ -114,13 +114,10 @@ func run(c *cli.Context) error {
 		utils.Logger.Warn("RASPICD_VERIFY_KEY not set — task signatures will not be verified")
 	}
 
-	client := agent.NewClient(c.String("server"), agentID, c.String("secret"))
+	client := agent.NewClient(serverURL, agentID, c.String("secret"))
 	executor := agent.NewExecutor(agentID, scriptsDir, verifyKey)
 
-	// ctx is cancelled the moment SIGINT/SIGTERM arrives, which immediately
-	// aborts any in-flight HTTP request (heartbeat or long-poll).
 	ctx, cancel := context.WithCancel(context.Background())
-
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 	go func() {
@@ -128,39 +125,20 @@ func run(c *cli.Context) error {
 		cancel()
 	}()
 
-	serverURL := c.String("server")
-	utils.Logger.Infof("Connecting to %s ...", serverURL)
-
 	bo := newBackoff(maxRetry)
 	fails := 0
-	connected := false
 
-	for {
+	utils.Logger.Infof("Connecting to %s ...", serverURL)
+
+	for ctx.Err() == nil {
+		err := client.Connect(ctx, hostname, version, executor)
 		if ctx.Err() != nil {
-			break
+			break // clean shutdown
 		}
-
-		if poll(ctx, client, executor, agentID, hostname) {
-			if !connected {
-				utils.Logger.Infof("Connected to %s", serverURL)
-				connected = true
-			} else if fails > 0 {
-				utils.Logger.Infof("Connection restored after %d failure(s)", fails)
-			}
-			fails = 0
-			bo.reset()
-			continue
-		}
-
-		// poll returned false: either a real error or the context was cancelled.
-		if ctx.Err() != nil {
-			break
-		}
-
 		fails++
 		delay := bo.next()
-		utils.Logger.Warnf("Connection failed (attempt %d), retrying in %s ...", fails, delay.Round(time.Millisecond))
-
+		utils.Logger.Warnf("Connection lost (attempt %d): %v. Retrying in %s ...",
+			fails, err, delay.Round(time.Millisecond))
 		select {
 		case <-ctx.Done():
 		case <-time.After(delay):
@@ -168,17 +146,10 @@ func run(c *cli.Context) error {
 	}
 
 	utils.Logger.Info("Agent shutting down")
-	// Use a fresh context for disconnect — the main ctx is already cancelled.
-	disconnectCtx, disconnectCancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer disconnectCancel()
-	if err := client.Disconnect(disconnectCtx); err != nil {
-		utils.Logger.Warnf("disconnect failed: %v", err)
-	}
 	return nil
 }
 
 // backoff implements exponential backoff with ±25% jitter.
-// Delays follow the sequence 1s, 2s, 4s, ... capped at max.
 type backoff struct {
 	current time.Duration
 	max     time.Duration
@@ -205,7 +176,6 @@ func (b *backoff) next() time.Duration {
 			b.current = b.max
 		}
 	}
-	// ±25% jitter to spread reconnect storms across multiple agents.
 	quarter := int64(b.current / 4)
 	jitter := time.Duration(b.rng.Int63n(quarter*2+1) - quarter)
 	return b.current + jitter
@@ -213,37 +183,4 @@ func (b *backoff) next() time.Duration {
 
 func (b *backoff) reset() {
 	b.current = 0
-}
-
-// poll sends a heartbeat, fetches pending tasks (long-polling), and executes
-// them. Returns true on success, false if a network/server error occurred.
-func poll(ctx context.Context, client *agent.Client, executor *agent.Executor, agentID, hostname string) bool {
-	if err := client.SendHeartbeat(ctx, hostname, version); err != nil {
-		utils.Logger.Warnf("Heartbeat failed: %v", err)
-		return false
-	}
-
-	tasks, err := client.FetchTasks(ctx)
-	if err != nil {
-		utils.Logger.Warnf("Fetch tasks failed: %v", err)
-		return false
-	}
-
-	for _, task := range tasks {
-		utils.Logger.Infof("Picked up task %s (script: %s)", task.ID, task.Script)
-
-		// Tell the server we have started before executing — if we crash
-		// mid-task the server will show "running" rather than "pending".
-		_ = client.ReportResult(ctx, task.ID, models.TaskResultRequest{
-			AgentID: agentID,
-			Status:  models.TaskStatusRunning,
-		})
-
-		result := executor.Run(task)
-
-		if err := client.ReportResult(ctx, task.ID, result); err != nil {
-			utils.Logger.Errorf("Report result failed for task %s: %v", task.ID, err)
-		}
-	}
-	return true
 }

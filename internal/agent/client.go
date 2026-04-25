@@ -1,71 +1,177 @@
 package agent
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net"
 	"net/http"
 	"strings"
 	"time"
 
+	"github.com/gorilla/websocket"
+
 	"raspicd/internal/models"
 	"raspicd/internal/utils"
 )
 
-// Client communicates with the RasPiCD server.
+const (
+	wsWriteWait  = 10 * time.Second
+	wsPingPeriod = 30 * time.Second
+	wsPongWait   = 60 * time.Second
+)
+
+// Client communicates with the RasPiCD server over a persistent WebSocket.
 type Client struct {
-	serverURL  string
-	agentID    string
-	secret     string
-	httpClient *http.Client
+	serverURL string
+	agentID   string
+	secret    string
 }
 
 // NewClient creates a Client.
 func NewClient(serverURL, agentID, secret string) *Client {
-	return &Client{
-		serverURL:  serverURL,
-		agentID:    agentID,
-		secret:     secret,
-		httpClient: &http.Client{Timeout: 45 * time.Second},
-	}
+	return &Client{serverURL: serverURL, agentID: agentID, secret: secret}
 }
 
-// do builds and executes an authenticated HTTP request.
-// The request is cancelled when ctx is done.
-func (c *Client) do(ctx context.Context, method, path string, body interface{}) (*http.Response, error) {
-	var bodyReader *bytes.Buffer
-	if body != nil {
-		b, err := json.Marshal(body)
-		if err != nil {
-			return nil, err
-		}
-		bodyReader = bytes.NewBuffer(b)
-	} else {
-		bodyReader = &bytes.Buffer{}
-	}
+// Connect establishes a WebSocket connection, registers this agent, and then
+// drives the task receive/execute/report loop until the connection closes or
+// ctx is cancelled.
+//
+// Returns nil only when ctx is cancelled (clean shutdown). Any other
+// disconnection returns a non-nil error so the caller can retry.
+func (c *Client) Connect(ctx context.Context, hostname, version string, exec *Executor) error {
+	wsURL := httpToWS(c.serverURL) + "/api/v1/agents/ws"
+	header := http.Header{"Authorization": []string{"Bearer " + c.secret}}
 
-	req, err := http.NewRequestWithContext(ctx, method, c.serverURL+path, bodyReader)
+	wsc, _, err := websocket.DefaultDialer.DialContext(ctx, wsURL, header)
 	if err != nil {
-		return nil, err
+		return fmt.Errorf("dial: %w", err)
 	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+c.secret)
-	return c.httpClient.Do(req)
-}
+	defer wsc.Close()
 
-func checkStatus(resp *http.Response) error {
-	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+	wsc.SetReadDeadline(time.Now().Add(wsPongWait))
+	wsc.SetPongHandler(func(string) error {
+		wsc.SetReadDeadline(time.Now().Add(wsPongWait))
 		return nil
+	})
+
+	// send is the single write channel — gorilla requires one writer at a time.
+	send := make(chan []byte, 32)
+
+	// Write goroutine: drains send and emits pings.
+	go func() {
+		ticker := time.NewTicker(wsPingPeriod)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				wsc.SetWriteDeadline(time.Now().Add(wsWriteWait))
+				wsc.WriteMessage(websocket.CloseMessage, //nolint:errcheck
+					websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""))
+				wsc.Close()
+				return
+			case msg, ok := <-send:
+				if !ok {
+					return
+				}
+				wsc.SetWriteDeadline(time.Now().Add(wsWriteWait))
+				if err := wsc.WriteMessage(websocket.TextMessage, msg); err != nil {
+					utils.Logger.Warnf("WS write error: %v", err)
+					wsc.Close()
+					return
+				}
+			case <-ticker.C:
+				wsc.SetWriteDeadline(time.Now().Add(wsWriteWait))
+				if err := wsc.WriteMessage(websocket.PingMessage, nil); err != nil {
+					wsc.Close()
+					return
+				}
+			}
+		}
+	}()
+
+	// Send hello — the first frame the server expects.
+	if err := sendMsg(send, models.WSMessage{
+		Type:      models.WSMsgHello,
+		AgentID:   c.agentID,
+		Hostname:  hostname,
+		Version:   version,
+		IPAddress: localIP(),
+	}); err != nil {
+		return err
 	}
-	body, _ := io.ReadAll(resp.Body)
-	return fmt.Errorf("server %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+
+	// Task queue: tasks are executed sequentially by a single goroutine so that
+	// scripts on the Pi don't trample each other.
+	taskCh := make(chan *models.Task, 8)
+	defer close(taskCh)
+
+	go func() {
+		for task := range taskCh {
+			sendMsg(send, models.WSMessage{ //nolint:errcheck
+				Type:   models.WSMsgResult,
+				TaskID: task.ID,
+				Status: models.TaskStatusRunning,
+			})
+
+			result := exec.Run(task)
+
+			sendMsg(send, models.WSMessage{ //nolint:errcheck
+				Type:       models.WSMsgResult,
+				TaskID:     task.ID,
+				Status:     result.Status,
+				Output:     result.Output,
+				Error:      result.Error,
+				DurationMs: result.DurationMs,
+			})
+		}
+	}()
+
+	// Read loop.
+	for {
+		_, raw, err := wsc.ReadMessage()
+		if err != nil {
+			if ctx.Err() != nil {
+				return nil // clean shutdown via ctx cancellation
+			}
+			if websocket.IsCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway) {
+				return fmt.Errorf("server closed connection")
+			}
+			return fmt.Errorf("connection lost: %w", err)
+		}
+
+		var msg models.WSMessage
+		if err := json.Unmarshal(raw, &msg); err != nil {
+			utils.Logger.Warnf("WS: unparseable message: %v", err)
+			continue
+		}
+
+		if msg.Type == models.WSMsgTask && msg.Task != nil {
+			utils.Logger.Infof("Received task %s (script: %s)", msg.Task.ID, msg.Task.Script)
+			select {
+			case taskCh <- msg.Task:
+			case <-ctx.Done():
+				return nil
+			default:
+				utils.Logger.Warnf("Task queue full — dropping task %s", msg.Task.ID)
+			}
+		}
+	}
 }
 
-// localIP returns the host's preferred outbound IP address by dialling a UDP
-// address. No packet is actually sent — the kernel just selects a route.
+// sendMsg marshals msg and enqueues it on send. Returns an error only if
+// marshalling fails (which should never happen for our fixed struct).
+func sendMsg(send chan<- []byte, msg models.WSMessage) error {
+	b, err := json.Marshal(msg)
+	if err != nil {
+		return fmt.Errorf("marshal ws message: %w", err)
+	}
+	send <- b
+	return nil
+}
+
+// localIP returns the host's preferred outbound IP by dialling a UDP address.
+// No packet is actually sent — the kernel just selects a route.
 func localIP() string {
 	conn, err := net.Dial("udp", "8.8.8.8:80")
 	if err != nil {
@@ -75,67 +181,10 @@ func localIP() string {
 	return conn.LocalAddr().(*net.UDPAddr).IP.String()
 }
 
-// SendHeartbeat registers or refreshes this agent on the server.
-func (c *Client) SendHeartbeat(ctx context.Context, hostname, version string) error {
-	resp, err := c.do(ctx, http.MethodPost, "/api/v1/agents/heartbeat", models.HeartbeatRequest{
-		AgentID:   c.agentID,
-		Hostname:  hostname,
-		IPAddress: localIP(),
-		Version:   version,
-	})
-	if err != nil {
-		return fmt.Errorf("heartbeat: %w", err)
+// httpToWS converts an http:// or https:// URL to its ws:// / wss:// equivalent.
+func httpToWS(u string) string {
+	if strings.HasPrefix(u, "https://") {
+		return "wss://" + strings.TrimPrefix(u, "https://")
 	}
-	defer resp.Body.Close()
-	if err := checkStatus(resp); err != nil {
-		return fmt.Errorf("heartbeat: %w", err)
-	}
-	utils.Logger.Debugf("Heartbeat sent")
-	return nil
-}
-
-// FetchTasks retrieves pending tasks assigned to this agent.
-// Blocks up to ~30 s waiting for a task (long poll).
-func (c *Client) FetchTasks(ctx context.Context) ([]*models.Task, error) {
-	resp, err := c.do(ctx, http.MethodGet, "/api/v1/agents/"+c.agentID+"/tasks?wait=1", nil)
-	if err != nil {
-		return nil, fmt.Errorf("fetch tasks: %w", err)
-	}
-	defer resp.Body.Close()
-	if err := checkStatus(resp); err != nil {
-		return nil, fmt.Errorf("fetch tasks: %w", err)
-	}
-	var tasks []*models.Task
-	if err := json.NewDecoder(resp.Body).Decode(&tasks); err != nil {
-		return nil, fmt.Errorf("decode tasks: %w", err)
-	}
-	utils.Logger.Debugf("Fetched %d task(s)", len(tasks))
-	return tasks, nil
-}
-
-// Disconnect notifies the server that this agent is going offline.
-func (c *Client) Disconnect(ctx context.Context) error {
-	resp, err := c.do(ctx, http.MethodPost, "/api/v1/agents/"+c.agentID+"/disconnect", nil)
-	if err != nil {
-		return fmt.Errorf("disconnect: %w", err)
-	}
-	defer resp.Body.Close()
-	if err := checkStatus(resp); err != nil {
-		return fmt.Errorf("disconnect: %w", err)
-	}
-	return nil
-}
-
-// ReportResult sends a task status update or final result to the server.
-func (c *Client) ReportResult(ctx context.Context, taskID string, result models.TaskResultRequest) error {
-	resp, err := c.do(ctx, http.MethodPost, "/api/v1/tasks/"+taskID+"/result", result)
-	if err != nil {
-		return fmt.Errorf("report result: %w", err)
-	}
-	defer resp.Body.Close()
-	if err := checkStatus(resp); err != nil {
-		return fmt.Errorf("report result: %w", err)
-	}
-	utils.Logger.Debugf("Reported %s for task %s", result.Status, taskID)
-	return nil
+	return "ws://" + strings.TrimPrefix(u, "http://")
 }

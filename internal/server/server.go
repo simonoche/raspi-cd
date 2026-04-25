@@ -25,7 +25,7 @@ type Server struct {
 	staticFS     fs.FS
 	signingKey   ed25519.PrivateKey
 	store        store
-	notifier     *notifier
+	hub          *hub
 	router       *http.ServeMux
 	httpSrv      *http.Server
 	cancel       context.CancelFunc
@@ -43,7 +43,7 @@ func New(bindAddr, ciSecret, agentSecret, version, dataFile string, agentTimeout
 		staticFS:     staticFS,
 		signingKey:   signingKey,
 		store:        newMemStore(dataFile),
-		notifier:     newNotifier(),
+		hub:          newHub(),
 		router:       http.NewServeMux(),
 	}
 	s.routes()
@@ -122,11 +122,8 @@ func (s *Server) routes() {
 	s.router.HandleFunc("/health", s.handleHealth)
 	s.router.HandleFunc("/api/v1/pubkey", s.handlePubKey)
 
-	// Agent-facing (agent secret).
-	s.router.HandleFunc("/api/v1/agents/heartbeat", s.authAgent(s.handleHeartbeat))
-	s.router.HandleFunc("/api/v1/agents/{id}/disconnect", s.authAgent(s.handleAgentDisconnect))
-	s.router.HandleFunc("/api/v1/agents/{id}/tasks", s.authAgent(s.handleAgentTasks))
-	s.router.HandleFunc("/api/v1/tasks/{id}/result", s.authAgent(s.handleTaskResult))
+	// Agent-facing (agent secret) — persistent WebSocket connection.
+	s.router.HandleFunc("/api/v1/agents/ws", s.authAgent(s.handleAgentWS))
 
 	// CI/CD and admin facing (CI secret).
 	s.router.HandleFunc("/api/v1/agents", s.authCI(s.handleAgents))

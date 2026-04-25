@@ -1,7 +1,6 @@
 package server
 
 import (
-	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
@@ -89,109 +88,6 @@ func (s *Server) handleAgents(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, agents)
 }
 
-// handleHeartbeat serves POST /api/v1/agents/heartbeat.
-func (s *Server) handleHeartbeat(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		methodNotAllowed(w, r)
-		return
-	}
-	var req models.HeartbeatRequest
-	if err := readJSON(r, &req); err != nil || req.AgentID == "" {
-		utils.Logger.Warnf("Heartbeat: invalid request body from %s", r.RemoteAddr)
-		http.Error(w, "invalid request body", http.StatusBadRequest)
-		return
-	}
-
-	existing, exists := s.store.getAgent(req.AgentID)
-
-	s.store.upsertAgent(&models.Agent{
-		ID:            req.AgentID,
-		Hostname:      req.Hostname,
-		IPAddress:     req.IPAddress,
-		Version:       req.Version,
-		Status:        "online",
-		LastHeartbeat: time.Now(),
-		Metadata:      req.Metadata,
-	})
-
-	switch {
-	case !exists:
-		utils.Logger.Infof("Agent registered: %s (%s) v%s", req.AgentID, req.Hostname, req.Version)
-	case existing.Status == "offline":
-		utils.Logger.Infof("Agent back online: %s (%s)", req.AgentID, req.Hostname)
-	default:
-		utils.Logger.Debugf("Heartbeat from %s (%s)", req.AgentID, req.Hostname)
-	}
-
-	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
-}
-
-// handleAgentDisconnect serves POST /api/v1/agents/{id}/disconnect.
-func (s *Server) handleAgentDisconnect(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		methodNotAllowed(w, r)
-		return
-	}
-	agentID := r.PathValue("id")
-	if s.store.setAgentOffline(agentID) {
-		utils.Logger.Infof("Agent disconnected: %s", agentID)
-	} else {
-		utils.Logger.Warnf("Disconnect request for unknown agent: %s", agentID)
-	}
-	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
-}
-
-// handleAgentTasks serves GET /api/v1/agents/{id}/tasks.
-// If ?wait=1 is present the handler long-polls: it blocks until a task arrives
-// or 30 seconds elapse, whichever comes first.
-func (s *Server) handleAgentTasks(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		methodNotAllowed(w, r)
-		return
-	}
-	agentID := r.PathValue("id")
-
-	tasks := s.store.listTasks(agentID, string(models.TaskStatusPending))
-	if len(tasks) > 0 {
-		utils.Logger.Infof("Dispatching %d pending task(s) to agent %s", len(tasks), agentID)
-		writeJSON(w, http.StatusOK, tasks)
-		return
-	}
-
-	if r.URL.Query().Get("wait") == "" {
-		utils.Logger.Debugf("No pending tasks for agent %s", agentID)
-		writeJSON(w, http.StatusOK, tasks)
-		return
-	}
-
-	// Long poll: subscribe then re-check the store (avoids a race between
-	// the first check above and the subscribe).
-	ch, cancel := s.notifier.subscribe(agentID)
-	defer cancel()
-
-	tasks = s.store.listTasks(agentID, string(models.TaskStatusPending))
-	if len(tasks) > 0 {
-		utils.Logger.Infof("Dispatching %d pending task(s) to agent %s", len(tasks), agentID)
-		writeJSON(w, http.StatusOK, tasks)
-		return
-	}
-
-	ctx, cancelCtx := context.WithTimeout(r.Context(), 30*time.Second)
-	defer cancelCtx()
-
-	select {
-	case <-ch:
-		tasks = s.store.listTasks(agentID, string(models.TaskStatusPending))
-		if len(tasks) > 0 {
-			utils.Logger.Infof("Dispatching %d pending task(s) to agent %s", len(tasks), agentID)
-		}
-	case <-ctx.Done():
-		utils.Logger.Debugf("Long-poll timeout for agent %s", agentID)
-	}
-
-	writeJSON(w, http.StatusOK, tasks)
-}
-
 // ---- /api/v1/tasks ---------------------------------------------------------
 
 // handleBroadcastTask serves POST /api/v1/tasks/broadcast.
@@ -236,10 +132,8 @@ func (s *Server) handleBroadcastTask(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		s.store.createTask(task)
+		s.hub.push(a.ID, task)
 		results = append(results, models.BroadcastTaskItem{AgentID: a.ID, TaskID: task.ID})
-	}
-	for _, item := range results {
-		s.notifier.notify(item.AgentID)
 	}
 	utils.Logger.Infof("Broadcast script=%s created for %d agent(s)", req.Script, len(results))
 	writeJSON(w, http.StatusCreated, results)
@@ -282,7 +176,7 @@ func (s *Server) handleTasks(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		s.store.createTask(task)
-		s.notifier.notify(task.AgentID)
+		s.hub.push(task.AgentID, task)
 		utils.Logger.Infof("Task %s created: script=%s agent=%s", task.ID, task.Script, task.AgentID)
 		writeJSON(w, http.StatusCreated, map[string]string{"id": task.ID})
 
@@ -306,31 +200,4 @@ func (s *Server) handleTask(w http.ResponseWriter, r *http.Request) {
 	}
 	utils.Logger.Debugf("Get task %s (status: %s)", id, task.Status)
 	writeJSON(w, http.StatusOK, task)
-}
-
-// handleTaskResult serves POST /api/v1/tasks/{id}/result — agent progress/completion reports.
-func (s *Server) handleTaskResult(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		methodNotAllowed(w, r)
-		return
-	}
-	id := r.PathValue("id")
-	var req models.TaskResultRequest
-	if err := readJSON(r, &req); err != nil {
-		utils.Logger.Warnf("Task result: invalid request body for task %s from %s", id, r.RemoteAddr)
-		http.Error(w, "invalid request body", http.StatusBadRequest)
-		return
-	}
-	s.store.updateTask(id, req.Status, req.Output, req.Error)
-	switch req.Status {
-	case models.TaskStatusRunning:
-		utils.Logger.Infof("Task %s running (agent: %s)", id, req.AgentID)
-	case models.TaskStatusCompleted:
-		utils.Logger.Infof("Task %s completed in %dms (agent: %s)", id, req.DurationMs, req.AgentID)
-	case models.TaskStatusFailed:
-		utils.Logger.Warnf("Task %s failed in %dms (agent: %s): %s", id, req.DurationMs, req.AgentID, req.Error)
-	default:
-		utils.Logger.Infof("Task %s → %s (agent: %s)", id, req.Status, req.AgentID)
-	}
-	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
