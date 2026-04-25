@@ -81,8 +81,17 @@ func (e *Executor) Run(task *models.Task) models.TaskResultRequest {
 }
 
 // run looks up a pre-installed script by name and executes it.
-// The script must exist at <scripts_dir>/<name>.sh and be executable.
-// task.Config is passed as environment variables:
+//
+// Script resolution:
+//   - Name must match [a-zA-Z0-9_-]+ segments separated by /
+//   - Resolved to <scripts_dir>/<name>.sh
+//   - Path must stay within scripts_dir (no traversal)
+//
+// Run-as user (optional):
+//   - If <scripts_dir>/<name>.user exists, its content is used as the OS user
+//   - Script is then run via: sudo -E -u <user> -- <script>
+//
+// Environment variables injected:
 //
 //	RASPICD_TASK_ID          — ID of this task
 //	RASPICD_AGENT_ID         — ID of this agent
@@ -94,12 +103,17 @@ func (e *Executor) run(task *models.Task) (output, errMsg string) {
 		return "", "missing script name"
 	}
 
-	// Prevent path traversal: only [a-zA-Z0-9_-] are allowed in script names.
 	if !isValidScriptName(name) {
-		return "", fmt.Sprintf("invalid script name %q: only letters, digits, - and _ are allowed", name)
+		return "", fmt.Sprintf("invalid script name %q: use [a-zA-Z0-9_-] segments separated by /", name)
 	}
 
-	scriptPath := filepath.Join(e.scriptsDir, name+".sh")
+	scriptPath := filepath.Join(e.scriptsDir, filepath.FromSlash(name)+".sh")
+
+	// Defense in depth: ensure the resolved path stays within scriptsDir.
+	cleanDir := filepath.Clean(e.scriptsDir) + string(filepath.Separator)
+	if !strings.HasPrefix(filepath.Clean(scriptPath)+string(filepath.Separator), cleanDir) {
+		return "", "script path escapes scripts directory"
+	}
 
 	info, err := os.Stat(scriptPath)
 	if os.IsNotExist(err) {
@@ -112,19 +126,47 @@ func (e *Executor) run(task *models.Task) (output, errMsg string) {
 		return "", fmt.Sprintf("script %s is not executable (run: chmod +x %s)", scriptPath, scriptPath)
 	}
 
-	cmd := exec.Command(scriptPath)
-	cmd.Env = buildEnv(task.ID, e.agentID, task.Config)
+	env := buildEnv(task.ID, e.agentID, task.Config)
+
+	// Check for an optional companion .user file to run the script as a
+	// specific OS user via sudo.
+	userFilePath := filepath.Join(e.scriptsDir, filepath.FromSlash(name)+".user")
+	runAs := readRunAsUser(userFilePath)
+
+	var cmd *exec.Cmd
+	if runAs != "" {
+		utils.Logger.Infof("Running script %s as user %s (task %s)", scriptPath, runAs, task.ID)
+		// -E preserves the environment (including RASPICD_* vars) for the script.
+		cmd = exec.Command("sudo", "-E", "-u", runAs, "--", scriptPath)
+	} else {
+		utils.Logger.Infof("Running script %s (task %s)", scriptPath, task.ID)
+		cmd = exec.Command(scriptPath)
+	}
+	cmd.Env = env
 
 	var buf bytes.Buffer
 	cmd.Stdout = &buf
 	cmd.Stderr = &buf
 
-	utils.Logger.Infof("Running script %s (task %s)", scriptPath, task.ID)
-
 	if err := cmd.Run(); err != nil {
 		return buf.String(), err.Error()
 	}
 	return buf.String(), ""
+}
+
+// readRunAsUser reads the username from a .user companion file.
+// Returns an empty string if the file does not exist or the username is invalid.
+func readRunAsUser(path string) string {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "" // file absent or unreadable — not an error
+	}
+	user := strings.TrimSpace(string(data))
+	if !isValidSegment(user) {
+		utils.Logger.Warnf("Ignoring invalid username %q in %s", user, path)
+		return ""
+	}
+	return user
 }
 
 // buildEnv constructs the environment for a script.
@@ -162,14 +204,29 @@ func buildEnv(taskID, agentID string, config map[string]interface{}) []string {
 	return env
 }
 
-// isValidScriptName returns true if name contains only [a-zA-Z0-9_-].
+// isValidSegment returns true if s contains only [a-zA-Z0-9_-].
+func isValidSegment(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, c := range s {
+		if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+			(c >= '0' && c <= '9') || c == '-' || c == '_') {
+			return false
+		}
+	}
+	return true
+}
+
+// isValidScriptName returns true if name is one or more [a-zA-Z0-9_-] segments
+// separated by forward slashes. Empty segments (leading/trailing slash,
+// double slash) and dot segments are rejected.
 func isValidScriptName(name string) bool {
 	if name == "" {
 		return false
 	}
-	for _, c := range name {
-		if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
-			(c >= '0' && c <= '9') || c == '-' || c == '_') {
+	for _, seg := range strings.Split(name, "/") {
+		if !isValidSegment(seg) {
 			return false
 		}
 	}

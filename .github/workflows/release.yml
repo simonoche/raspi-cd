@@ -35,9 +35,11 @@ jobs:
   #    Users install the agent with a single curl download — no Docker.
   #
   #    Binaries produced:
-  #      raspicd-agent-linux-arm64   Pi 3 / 4 / 5 (64-bit OS)
-  #      raspicd-agent-linux-armv7   Pi 2 / 3 (32-bit OS)
-  #      raspicd-agent-linux-amd64   x86-64 (testing / VMs)
+  #      raspicd-agent-linux-arm64    Pi 3 / 4 / 5 (64-bit OS)
+  #      raspicd-agent-linux-armv7    Pi 2 / 3 (32-bit OS)
+  #      raspicd-agent-linux-amd64    x86-64 Linux (testing / VMs)
+  #      raspicd-agent-darwin-arm64   macOS Apple Silicon (M1/M2/M3/M4)
+  #      raspicd-agent-darwin-amd64   macOS Intel
   # ------------------------------------------------------------------
   release-agent:
     name: Release agent binaries
@@ -58,9 +60,11 @@ jobs:
           LDFLAGS="-s -w -X main.version=${VERSION}"
           mkdir -p bin
 
-          GOOS=linux GOARCH=arm64       go build -ldflags="$LDFLAGS" -o bin/raspicd-agent-linux-arm64  ./cmd/agent
-          GOOS=linux GOARCH=arm GOARM=7 go build -ldflags="$LDFLAGS" -o bin/raspicd-agent-linux-armv7  ./cmd/agent
-          GOOS=linux GOARCH=amd64       go build -ldflags="$LDFLAGS" -o bin/raspicd-agent-linux-amd64  ./cmd/agent
+          GOOS=linux  GOARCH=arm64       go build -ldflags="$LDFLAGS" -o bin/raspicd-agent-linux-arm64   ./cmd/agent
+          GOOS=linux  GOARCH=arm GOARM=7 go build -ldflags="$LDFLAGS" -o bin/raspicd-agent-linux-armv7   ./cmd/agent
+          GOOS=linux  GOARCH=amd64       go build -ldflags="$LDFLAGS" -o bin/raspicd-agent-linux-amd64   ./cmd/agent
+          GOOS=darwin GOARCH=arm64       go build -ldflags="$LDFLAGS" -o bin/raspicd-agent-darwin-arm64  ./cmd/agent
+          GOOS=darwin GOARCH=amd64       go build -ldflags="$LDFLAGS" -o bin/raspicd-agent-darwin-amd64  ./cmd/agent
 
       - name: Create GitHub Release and upload binaries
         uses: softprops/action-gh-release@v2
@@ -70,6 +74,8 @@ jobs:
             bin/raspicd-agent-linux-arm64
             bin/raspicd-agent-linux-armv7
             bin/raspicd-agent-linux-amd64
+            bin/raspicd-agent-darwin-arm64
+            bin/raspicd-agent-darwin-amd64
 
   # ------------------------------------------------------------------
   # 3. Server: build a multi-arch Docker image and push to ghcr.io.

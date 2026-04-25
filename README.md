@@ -111,21 +111,38 @@ your-server.example.com {
 
 Pre-built binaries for every release are attached to the [GitHub Releases](../../releases) page.
 
-On the Pi, download the binary that matches your architecture:
+Download the binary that matches your platform:
 
 ```bash
-# Pi 3 / 4 / 5 running a 64-bit OS (most common)
 VERSION=v0.1.0
-curl -fsSL -o /tmp/raspicd-agent \
-  "https://github.com/your-org/raspicd/releases/download/${VERSION}/raspicd-agent-linux-arm64"
+BASE="https://github.com/your-org/raspicd/releases/download/${VERSION}"
 
-# Pi 2 / 3 running a 32-bit OS
-curl -fsSL -o /tmp/raspicd-agent \
-  "https://github.com/your-org/raspicd/releases/download/${VERSION}/raspicd-agent-linux-armv7"
+# Raspberry Pi 3 / 4 / 5 — 64-bit OS (most common)
+curl -fsSL -o /tmp/raspicd-agent "${BASE}/raspicd-agent-linux-arm64"
 
+# Raspberry Pi 2 / 3 — 32-bit OS
+curl -fsSL -o /tmp/raspicd-agent "${BASE}/raspicd-agent-linux-armv7"
+
+# Linux x86-64 (VMs, servers)
+curl -fsSL -o /tmp/raspicd-agent "${BASE}/raspicd-agent-linux-amd64"
+
+# macOS — Apple Silicon (M1/M2/M3/M4)
+curl -fsSL -o /tmp/raspicd-agent "${BASE}/raspicd-agent-darwin-arm64"
+
+# macOS — Intel
+curl -fsSL -o /tmp/raspicd-agent "${BASE}/raspicd-agent-darwin-amd64"
+```
+
+```bash
 sudo mv /tmp/raspicd-agent /usr/local/bin/raspicd-agent
 sudo chmod +x /usr/local/bin/raspicd-agent
 ```
+
+> **macOS only:** Gatekeeper will quarantine unsigned binaries downloaded via curl.
+> Remove the quarantine attribute before running:
+> ```bash
+> xattr -d com.apple.quarantine /usr/local/bin/raspicd-agent
+> ```
 
 ### Configure the agent
 
@@ -244,7 +261,25 @@ The agent connects on startup and maintains a persistent long-poll connection �
 
 ### Set up scripts
 
-Scripts live on the Pi and are triggered by name from CI/CD. No code travels over the wire — only a name and optional config data. Create the scripts directory and add executable shell scripts to it:
+Scripts live on the Pi and are triggered by name from CI/CD. No code travels over the wire — only a name and optional config data.
+
+#### Directory layout
+
+The default scripts directory is `/etc/raspicd/scripts/` (configurable via `RASPICD_SCRIPTS_DIR`). Subdirectories are supported — use `/` in the script name to address them:
+
+```
+/etc/raspicd/scripts/
+  deploy-myapp.sh          ← "script": "deploy-myapp"
+  deploy-myapp.user        ← optional: run as this OS user
+  myapp/
+    build.sh               ← "script": "myapp/build"
+    restart.sh             ← "script": "myapp/restart"
+    restart.user           ← optional: run as this OS user
+```
+
+Script names must match `[a-zA-Z0-9_-]` segments separated by `/`. Path traversal (`..`) is blocked.
+
+#### Create a script
 
 ```bash
 sudo mkdir -p /etc/raspicd/scripts
@@ -277,6 +312,30 @@ Scripts receive task context as environment variables — no arguments needed:
 | `RASPICD_AGENT_ID` | ID of this agent |
 | `RASPICD_CONFIG` | Full `config` object as a JSON string |
 | `RASPICD_CONFIG_<KEY>` | One var per top-level scalar in `config` |
+
+#### Run a script as a specific user
+
+Place a `.user` file next to the script containing the OS username. The agent will run the script via `sudo -E -u <user>`:
+
+```bash
+echo "www-data" | sudo tee /etc/raspicd/scripts/deploy-myapp.user
+```
+
+The agent must be allowed to sudo as that user without a password. Add a sudoers rule for each script that needs it:
+
+```bash
+sudo visudo -f /etc/sudoers.d/raspicd
+```
+
+```
+# Allow the raspicd agent (running as pi) to execute specific scripts as www-data
+pi ALL=(www-data) NOPASSWD: /etc/raspicd/scripts/deploy-myapp.sh
+
+# To also preserve environment variables (RASPICD_* vars):
+Defaults!/etc/raspicd/scripts/deploy-myapp.sh env_keep += "RASPICD_TASK_ID RASPICD_AGENT_ID RASPICD_CONFIG"
+```
+
+> The `-E` flag passed to sudo requests environment preservation. Whether it is honoured depends on your sudoers `env_reset` / `env_keep` policy.
 
 See [`examples/named-scripts/`](examples/named-scripts/) for a fully annotated example.
 
