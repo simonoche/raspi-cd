@@ -24,7 +24,8 @@ WORKDIR /app
 
 RUN apk add --no-cache ca-certificates && \
     addgroup -g 1000 app && \
-    adduser -D -u 1000 -G app app
+    adduser -D -u 1000 -G app app && \
+    mkdir -p /data && chown app:app /data
 
 COPY --from=builder /app/raspicd-server .
 
