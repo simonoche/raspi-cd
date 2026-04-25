@@ -2,15 +2,15 @@
 
 Deploy to Raspberry Pis (or any other host) from any CI/CD pipeline.
 
-**How it works:** a lightweight server sits on the public internet. Each Pi runs an agent that maintains a persistent long-poll connection to the server. Your CI/CD pipeline pushes a task — the agent receives it instantly and executes it locally.
+**How it works:** a lightweight server sits on the public internet. Each Pi runs an agent that holds a persistent **WebSocket** connection to the server. Your CI/CD pipeline pushes a task — the server delivers it instantly over the open socket and the agent executes it locally.
 
 No inbound ports are needed on the Pi. The agent connects outbound only.
 
 ```
 CI/CD pipeline  ──POST /api/v1/tasks──▶  Server (public)
-                                              ▲
-                          Agent (Pi) ─────────┘
-                          long-poll: task delivered in milliseconds
+                                              │
+                          Agent (Pi) ◀────────┘
+                          WebSocket: task delivered in milliseconds
 ```
 
 ---
@@ -173,7 +173,7 @@ sudo chmod 600 /etc/raspicd/agent.env
 | `RASPICD_AGENT_ID` | Yes | — | Unique name for this Pi |
 | `RASPICD_AGENT_SECRET` | Yes | — | Agent Bearer token secret |
 | `RASPICD_VERIFY_KEY` | Yes* | — | Ed25519 public key as 64 hex chars. See [Task signing](#task-signing) |
-| `RASPICD_POLL_INTERVAL` | No | `60s` | Maximum retry delay (exponential backoff: 1s → 2s → 4s → … → this value) |
+| `RASPICD_POLL_INTERVAL` | No | `60s` | Maximum reconnect delay (exponential backoff: 1s → 2s → 4s → … → this value) |
 | `RASPICD_SCRIPTS_DIR` | No | `/etc/raspicd/scripts` | Directory of named scripts |
 | `RASPICD_DEBUG` | No | `false` | Verbose logging |
 
@@ -256,9 +256,9 @@ sudo journalctl -u raspicd-agent -n 50
 | Disable autostart | `sudo systemctl disable raspicd-agent` |
 | Reload unit file | `sudo systemctl daemon-reload` |
 
-Stopping the agent with `systemctl stop` sends SIGTERM — the agent finishes any running task, notifies the server it is going offline, and exits cleanly.
+Stopping the agent with `systemctl stop` sends SIGTERM — the agent sends a WebSocket close frame, finishes any running task, and exits cleanly. The server marks it offline immediately.
 
-The agent connects on startup and maintains a persistent long-poll connection — tasks are delivered in milliseconds. If the connection drops the agent reconnects automatically using exponential backoff (1s, 2s, 4s … up to `RASPICD_POLL_INTERVAL`, default 60s) with ±25% jitter to avoid thundering herds. When stopped gracefully (e.g. `systemctl stop` or CTRL+C), the agent notifies the server immediately and its status switches to offline.
+The agent connects on startup and holds a persistent **WebSocket** connection — tasks are pushed by the server and received in milliseconds. If the connection drops the agent reconnects automatically using exponential backoff (1s, 2s, 4s … up to `RASPICD_POLL_INTERVAL`, default 60s) with ±25% jitter to avoid thundering herds. Any tasks created while the agent was offline are flushed to it as soon as it reconnects.
 
 ### Set up scripts
 
@@ -560,10 +560,9 @@ Endpoints are split by which secret they require.
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `POST` | `/api/v1/agents/heartbeat` | Agent registration/keep-alive |
-| `POST` | `/api/v1/agents/{id}/disconnect` | Agent graceful shutdown notification |
-| `GET` | `/api/v1/agents/{id}/tasks` | Pending tasks for one agent (supports `?wait=1` for long polling) |
-| `POST` | `/api/v1/tasks/{id}/result` | Agent reports task progress/completion |
+| `GET` (WS upgrade) | `/api/v1/agents/ws` | Persistent WebSocket connection — registration, task delivery, and result reporting all flow through here |
+
+The agent opens this connection on startup and keeps it alive with WebSocket ping/pong frames. The server pushes task frames to the agent and receives result frames back over the same connection. On disconnect the agent is marked offline; pending tasks are queued and flushed on reconnect.
 
 **CI secret** (`RASPICD_SECRET`)
 
