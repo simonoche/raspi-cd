@@ -40,7 +40,7 @@ openssl rand -hex 32   # Agent secret  → RASPICD_AGENT_SECRET
 | `RASPICD_SECRET` | CI/CD pipelines | Create tasks, list tasks and agents |
 | `RASPICD_AGENT_SECRET` | Agents on each Pi | Heartbeat, fetch tasks, report results |
 
-### Run with Docker Compose
+### Option A — Run with Docker Compose
 
 Create a `docker-compose.yml` on your server host:
 
@@ -72,6 +72,52 @@ docker compose up -d
 ```
 
 The server listens on port `8080`. Put a reverse proxy (nginx, Caddy) in front of it to terminate TLS.
+
+### Option B — Run as a binary
+
+Pre-built server binaries are available on the [GitHub Releases](../../releases) page alongside the agent binaries.
+
+```bash
+VERSION=v0.1.0
+BASE="https://github.com/your-org/raspicd/releases/download/${VERSION}"
+
+# Linux x86-64 (most servers / VMs)
+curl -fsSL -o /usr/local/bin/raspicd-server "${BASE}/raspicd-server-linux-amd64"
+chmod +x /usr/local/bin/raspicd-server
+```
+
+Run it with environment variables:
+
+```bash
+export RASPICD_SECRET=<your-ci-secret>
+export RASPICD_AGENT_SECRET=<your-agent-secret>
+export RASPICD_SIGNING_KEY=<your-signing-key>
+raspicd-server
+```
+
+Or as a systemd service on Linux:
+
+```bash
+sudo tee /etc/systemd/system/raspicd-server.service > /dev/null <<'EOF'
+[Unit]
+Description=RasPiCD Server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+EnvironmentFile=/etc/raspicd/server.env
+ExecStart=/usr/local/bin/raspicd-server
+Restart=on-failure
+RestartSec=5s
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+sudo systemctl daemon-reload
+sudo systemctl enable --now raspicd-server
+```
 
 **Verify it is running:**
 
