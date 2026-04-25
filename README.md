@@ -53,6 +53,7 @@ services:
     environment:
       RASPICD_SECRET: "${RASPICD_SECRET}"
       RASPICD_AGENT_SECRET: "${RASPICD_AGENT_SECRET}"
+      RASPICD_SIGNING_KEY: "${RASPICD_SIGNING_KEY}"
     ports:
       - "8080:8080"
     volumes:
@@ -85,9 +86,12 @@ curl https://your-server.example.com/health
 |----------|----------|---------|-------------|
 | `RASPICD_SECRET` | Yes | — | CI/CD Bearer token secret (used by pipelines to create tasks) |
 | `RASPICD_AGENT_SECRET` | Yes | — | Agent Bearer token secret (used by agents to poll and report) |
+| `RASPICD_SIGNING_KEY` | Yes* | — | Ed25519 private key seed as 64 hex chars. See [Task signing](#task-signing) |
 | `RASPICD_BIND` | No | `:8080` | Listen address |
 | `RASPICD_AGENT_TIMEOUT` | No | `90s` | Mark agents offline after this duration without a heartbeat |
 | `RASPICD_DEBUG` | No | `false` | Verbose logging |
+
+*If omitted, an ephemeral key is generated at startup — tasks can't be verified after a server restart.
 
 ### Expose the server publicly
 
@@ -150,9 +154,12 @@ sudo chmod 600 /etc/raspicd/agent.env
 | `RASPICD_SERVER` | Yes | — | Server base URL |
 | `RASPICD_AGENT_ID` | Yes | — | Unique name for this Pi |
 | `RASPICD_AGENT_SECRET` | Yes | — | Agent Bearer token secret |
+| `RASPICD_VERIFY_KEY` | Yes* | — | Ed25519 public key as 64 hex chars. See [Task signing](#task-signing) |
 | `RASPICD_POLL_INTERVAL` | No | `60s` | Maximum retry delay (exponential backoff: 1s → 2s → 4s → … → this value) |
 | `RASPICD_SCRIPTS_DIR` | No | `/etc/raspicd/scripts` | Directory of named scripts |
 | `RASPICD_DEBUG` | No | `false` | Verbose logging |
+
+*If omitted, signature verification is skipped with a warning — strongly recommended in production.
 
 ### Run as a systemd daemon
 
@@ -420,6 +427,64 @@ curl -s https://your-server.example.com/api/v1/agents \
 
 ---
 
+## Task signing
+
+Beyond TLS, RasPiCD signs every task with an **Ed25519 private key** held by the server. Each agent holds the corresponding **public key** and verifies the signature before executing any script. A task with a missing or invalid signature is rejected immediately.
+
+```
+Server (private key) ── signs task ──▶ stored in server ── relayed to ──▶ Agent (public key verifies)
+```
+
+This means a task cannot be tampered with in transit or in storage without detection, even by someone who has obtained the CI/CD bearer token.
+
+### Generate a keypair
+
+Run the server once **without** `RASPICD_SIGNING_KEY` — it generates an ephemeral keypair and prints both values:
+
+```
+WARN RASPICD_SIGNING_KEY not set — using an ephemeral key that changes on every restart.
+WARN To make signing permanent, add to your server config:  RASPICD_SIGNING_KEY=a3f4b2c1...
+WARN Add to each agent's /etc/raspicd/agent.env:            RASPICD_VERIFY_KEY=9d72e1f0...
+```
+
+Copy the printed values into your config, then restart. Alternatively, generate a seed directly:
+
+```bash
+openssl rand -hex 32   # → use as RASPICD_SIGNING_KEY on the server
+```
+
+Then fetch the public key from the running server:
+
+```bash
+curl https://your-server.example.com/api/v1/pubkey
+# {"public_key":"9d72e1f0..."}
+```
+
+### Configure the server
+
+```bash
+# docker-compose.yml / environment
+RASPICD_SIGNING_KEY=a3f4b2c1...   # 64 hex chars (32-byte seed)
+```
+
+### Configure each agent
+
+Add `RASPICD_VERIFY_KEY` to `/etc/raspicd/agent.env`:
+
+```bash
+RASPICD_VERIFY_KEY=9d72e1f0...    # 64 hex chars (32-byte public key)
+```
+
+Then restart the agent:
+
+```bash
+sudo systemctl restart raspicd-agent
+```
+
+If `RASPICD_VERIFY_KEY` is not set the agent logs a warning and executes tasks unsigned. **Always set it in production.**
+
+---
+
 ## API Reference
 
 Endpoints are split by which secret they require.
@@ -429,6 +494,7 @@ Endpoints are split by which secret they require.
 | Method | Path | Description |
 |--------|------|-------------|
 | `GET` | `/health` | Server health check |
+| `GET` | `/api/v1/pubkey` | Server's Ed25519 public key (for agent verification setup) |
 
 **Agent secret** (`RASPICD_AGENT_SECRET`)
 

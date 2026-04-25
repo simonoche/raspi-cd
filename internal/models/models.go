@@ -1,6 +1,9 @@
 package models
 
-import "time"
+import (
+	"encoding/json"
+	"time"
+)
 
 type TaskStatus string
 
@@ -16,12 +19,23 @@ type Task struct {
 	ID        string                 `json:"id"`
 	Script    string                 `json:"script"`
 	Config    map[string]interface{} `json:"config,omitempty"`
+	Signature string                 `json:"signature,omitempty"`
 	Status    TaskStatus             `json:"status"`
 	AgentID   string                 `json:"agent_id"`
 	CreatedAt time.Time              `json:"created_at"`
 	UpdatedAt time.Time              `json:"updated_at"`
 	Output    string                 `json:"output,omitempty"`
 	Error     string                 `json:"error,omitempty"`
+}
+
+// SigningMessage returns the canonical bytes that are signed/verified for this task.
+// Covers id, script, and config — the fields that define what will be executed.
+func (t *Task) SigningMessage() ([]byte, error) {
+	configJSON, err := json.Marshal(t.Config)
+	if err != nil {
+		return nil, err
+	}
+	return []byte(t.ID + "|" + t.Script + "|" + string(configJSON)), nil
 }
 
 // Agent represents a registered Raspberry Pi running the agent daemon.

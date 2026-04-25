@@ -2,12 +2,16 @@ package server
 
 import (
 	"context"
+	"crypto/ed25519"
 	"crypto/subtle"
+	"encoding/hex"
+	"fmt"
 	"io/fs"
 	"net/http"
 	"strings"
 	"time"
 
+	"raspicd/internal/models"
 	"raspicd/internal/utils"
 )
 
@@ -19,6 +23,7 @@ type Server struct {
 	agentSecret  string // used by agents to heartbeat, fetch tasks, and report results
 	agentTimeout time.Duration
 	staticFS     fs.FS
+	signingKey   ed25519.PrivateKey
 	store        store
 	notifier     *notifier
 	router       *http.ServeMux
@@ -27,7 +32,7 @@ type Server struct {
 }
 
 // New creates and configures a Server.
-func New(bindAddr, ciSecret, agentSecret, version string, agentTimeout time.Duration, staticFS fs.FS) *Server {
+func New(bindAddr, ciSecret, agentSecret, version string, agentTimeout time.Duration, staticFS fs.FS, signingKey ed25519.PrivateKey) *Server {
 	s := &Server{
 		bindAddr:     bindAddr,
 		version:      version,
@@ -35,12 +40,30 @@ func New(bindAddr, ciSecret, agentSecret, version string, agentTimeout time.Dura
 		agentSecret:  agentSecret,
 		agentTimeout: agentTimeout,
 		staticFS:     staticFS,
+		signingKey:   signingKey,
 		store:        newMemStore(),
 		notifier:     newNotifier(),
 		router:       http.NewServeMux(),
 	}
 	s.routes()
 	return s
+}
+
+// signTask computes an Ed25519 signature over the task's canonical fields
+// and stores it in task.Signature.
+func (s *Server) signTask(task *models.Task) error {
+	msg, err := task.SigningMessage()
+	if err != nil {
+		return fmt.Errorf("build signing message: %w", err)
+	}
+	sig := ed25519.Sign(s.signingKey, msg)
+	task.Signature = hex.EncodeToString(sig)
+	return nil
+}
+
+// PublicKeyHex returns the server's Ed25519 public key as a lowercase hex string.
+func (s *Server) PublicKeyHex() string {
+	return hex.EncodeToString(s.signingKey.Public().(ed25519.PublicKey))
 }
 
 // Start begins listening. Blocks until the server stops.
@@ -96,6 +119,7 @@ func (s *Server) routes() {
 	// Unauthenticated.
 	s.router.HandleFunc("/", s.handleIndex)
 	s.router.HandleFunc("/health", s.handleHealth)
+	s.router.HandleFunc("/api/v1/pubkey", s.handlePubKey)
 
 	// Agent-facing (agent secret).
 	s.router.HandleFunc("/api/v1/agents/heartbeat", s.authAgent(s.handleHeartbeat))

@@ -2,6 +2,8 @@ package agent
 
 import (
 	"bytes"
+	"crypto/ed25519"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -19,17 +21,49 @@ import (
 type Executor struct {
 	agentID    string
 	scriptsDir string
+	verifyKey  ed25519.PublicKey // nil means verification is disabled
 }
 
-// NewExecutor creates an Executor.
-func NewExecutor(agentID, scriptsDir string) *Executor {
-	return &Executor{agentID: agentID, scriptsDir: scriptsDir}
+// NewExecutor creates an Executor. verifyKey may be nil to disable signature verification.
+func NewExecutor(agentID, scriptsDir string, verifyKey ed25519.PublicKey) *Executor {
+	return &Executor{agentID: agentID, scriptsDir: scriptsDir, verifyKey: verifyKey}
+}
+
+// verifySignature checks the task's Ed25519 signature. If no verify key is
+// configured it logs a warning and allows the task through.
+func (e *Executor) verifySignature(task *models.Task) error {
+	if len(e.verifyKey) == 0 {
+		utils.Logger.Warn("RASPICD_VERIFY_KEY not set — skipping signature verification (task not authenticated)")
+		return nil
+	}
+	if task.Signature == "" {
+		return fmt.Errorf("task carries no signature")
+	}
+	sig, err := hex.DecodeString(task.Signature)
+	if err != nil {
+		return fmt.Errorf("malformed signature: %w", err)
+	}
+	msg, err := task.SigningMessage()
+	if err != nil {
+		return fmt.Errorf("build signing message: %w", err)
+	}
+	if !ed25519.Verify(e.verifyKey, msg, sig) {
+		return fmt.Errorf("signature mismatch")
+	}
+	return nil
 }
 
 // Run executes a task and returns the result to be reported to the server.
 func (e *Executor) Run(task *models.Task) models.TaskResultRequest {
 	start := time.Now()
 	result := models.TaskResultRequest{AgentID: e.agentID}
+
+	if err := e.verifySignature(task); err != nil {
+		result.Status = models.TaskStatusFailed
+		result.Error = "signature verification failed: " + err.Error()
+		utils.Logger.Errorf("Task %s rejected: %s", task.ID, result.Error)
+		return result
+	}
 
 	utils.Logger.Infof("Executing task %s (script: %s)", task.ID, task.Script)
 

@@ -24,6 +24,18 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 	http.ServeFileFS(w, r, s.staticFS, "index.html")
 }
 
+// ---- /api/v1/pubkey --------------------------------------------------------
+
+// handlePubKey serves GET /api/v1/pubkey — unauthenticated so agents can
+// fetch the verification key on startup.
+func (s *Server) handlePubKey(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		methodNotAllowed(w, r)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"public_key": s.PublicKeyHex()})
+}
+
 // ---- helpers ---------------------------------------------------------------
 
 func writeJSON(w http.ResponseWriter, code int, v interface{}) {
@@ -218,6 +230,11 @@ func (s *Server) handleBroadcastTask(w http.ResponseWriter, r *http.Request) {
 			CreatedAt: time.Now(),
 			UpdatedAt: time.Now(),
 		}
+		if err := s.signTask(task); err != nil {
+			utils.Logger.Errorf("Sign task: %v", err)
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
 		s.store.createTask(task)
 		results = append(results, models.BroadcastTaskItem{AgentID: a.ID, TaskID: task.ID})
 	}
@@ -258,6 +275,11 @@ func (s *Server) handleTasks(w http.ResponseWriter, r *http.Request) {
 			AgentID:   req.AgentID,
 			CreatedAt: time.Now(),
 			UpdatedAt: time.Now(),
+		}
+		if err := s.signTask(task); err != nil {
+			utils.Logger.Errorf("Sign task: %v", err)
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
 		}
 		s.store.createTask(task)
 		s.notifier.notify(task.AgentID)

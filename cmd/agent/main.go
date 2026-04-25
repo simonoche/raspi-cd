@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"crypto/ed25519"
+	"encoding/hex"
 	"fmt"
 	"math/rand"
 	"os"
@@ -66,6 +68,12 @@ func main() {
 				Value:   "/etc/raspicd/scripts",
 				EnvVars: []string{"RASPICD_SCRIPTS_DIR"},
 			},
+			&cli.StringFlag{
+				Name:    "verify-key",
+				Aliases: []string{"vk"},
+				Usage:   "Ed25519 public key as 64 hex chars — verify task signatures from the server",
+				EnvVars: []string{"RASPICD_VERIFY_KEY"},
+			},
 			&cli.BoolFlag{
 				Name:    "debug",
 				Aliases: []string{"d"},
@@ -94,8 +102,20 @@ func run(c *cli.Context) error {
 	utils.Logger.Infof("RasPiCD Agent %s  id=%s  server=%s  max-retry=%s  scripts=%s",
 		version, agentID, c.String("server"), maxRetry, scriptsDir)
 
+	var verifyKey ed25519.PublicKey
+	if vkHex := c.String("verify-key"); vkHex != "" {
+		b, err := hex.DecodeString(vkHex)
+		if err != nil || len(b) != ed25519.PublicKeySize {
+			return fmt.Errorf("RASPICD_VERIFY_KEY must be %d hex bytes (%d hex chars)", ed25519.PublicKeySize, ed25519.PublicKeySize*2)
+		}
+		verifyKey = ed25519.PublicKey(b)
+		utils.Logger.Infof("Task signature verification enabled")
+	} else {
+		utils.Logger.Warn("RASPICD_VERIFY_KEY not set — task signatures will not be verified")
+	}
+
 	client := agent.NewClient(c.String("server"), agentID, c.String("secret"))
-	executor := agent.NewExecutor(agentID, scriptsDir)
+	executor := agent.NewExecutor(agentID, scriptsDir, verifyKey)
 
 	// ctx is cancelled the moment SIGINT/SIGTERM arrives, which immediately
 	// aborts any in-flight HTTP request (heartbeat or long-poll).
