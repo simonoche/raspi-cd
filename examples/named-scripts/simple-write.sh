@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# deploy-myapp.sh — install this file at /etc/raspicd/scripts/deploy-myapp.sh
+# simple-write.sh — install this file at /etc/raspicd/scripts/simple-write.sh
 # on each Raspberry Pi, then make it executable:
 #
-#   chmod +x /etc/raspicd/scripts/deploy-myapp.sh
+#   chmod +x /etc/raspicd/scripts/simple-write.sh
 #
 # Trigger it from CI/CD:
 #
@@ -11,7 +11,7 @@
 #     -H "Content-Type: application/json" \
 #     -d '{
 #           "agent_id": "raspi-living-room",
-#           "script":   "deploy-myapp",
+#           "script":   "simple-write",
 #           "config": {
 #             "ref":     "v1.2.3",
 #             "env":     "production",
@@ -34,30 +34,11 @@
 
 set -euo pipefail
 
-APP_DIR="/opt/myapp"
+APP_DIR="/home/simon/myapp"
 REF="${RASPICD_CONFIG_REF:-main}"
 ENV="${RASPICD_CONFIG_ENV:-production}"
 RESTART="${RASPICD_CONFIG_RESTART:-false}"
 
 echo "[task: $RASPICD_TASK_ID] deploying ref=$REF env=$ENV"
-
-# Pull the requested ref.
-if [ -d "$APP_DIR/.git" ]; then
-    git -C "$APP_DIR" fetch --tags --prune origin
-    git -C "$APP_DIR" checkout -f "$REF"
-    git -C "$APP_DIR" pull --ff-only || true   # no-op for tags
-else
-    git clone --branch "$REF" https://github.com/your-org/myapp.git "$APP_DIR"
-fi
-
-# Build.
-cd "$APP_DIR"
-make build APP_ENV="$ENV"
-
-# Optionally restart the service.
-if [ "$RESTART" = "true" ]; then
-    echo "restarting myapp.service ..."
-    systemctl restart myapp
-fi
-
+echo $REF > "$APP_DIR/config.txt"
 echo "done."
