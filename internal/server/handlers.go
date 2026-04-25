@@ -190,9 +190,9 @@ func (s *Server) handleBroadcastTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req models.BroadcastTaskRequest
-	if err := readJSON(r, &req); err != nil || req.Type == "" {
+	if err := readJSON(r, &req); err != nil || req.Script == "" {
 		utils.Logger.Warnf("Broadcast task: invalid request body from %s", r.RemoteAddr)
-		http.Error(w, "invalid request body", http.StatusBadRequest)
+		http.Error(w, "script is required", http.StatusBadRequest)
 		return
 	}
 
@@ -211,10 +211,10 @@ func (s *Server) handleBroadcastTask(w http.ResponseWriter, r *http.Request) {
 	for _, a := range online {
 		task := &models.Task{
 			ID:        newID(),
-			Type:      req.Type,
+			Script:    req.Script,
+			Config:    req.Config,
 			Status:    models.TaskStatusPending,
 			AgentID:   a.ID,
-			Payload:   req.Payload,
 			CreatedAt: time.Now(),
 			UpdatedAt: time.Now(),
 		}
@@ -224,7 +224,7 @@ func (s *Server) handleBroadcastTask(w http.ResponseWriter, r *http.Request) {
 	for _, item := range results {
 		s.notifier.notify(item.AgentID)
 	}
-	utils.Logger.Infof("Broadcast task (type=%s) created for %d agent(s)", req.Type, len(results))
+	utils.Logger.Infof("Broadcast script=%s created for %d agent(s)", req.Script, len(results))
 	writeJSON(w, http.StatusCreated, results)
 }
 
@@ -245,23 +245,23 @@ func (s *Server) handleTasks(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "invalid request body", http.StatusBadRequest)
 			return
 		}
-		if req.Type == "" || req.AgentID == "" {
-			utils.Logger.Warnf("Create task: missing type or agent_id from %s", r.RemoteAddr)
-			http.Error(w, "type and agent_id are required", http.StatusBadRequest)
+		if req.Script == "" || req.AgentID == "" {
+			utils.Logger.Warnf("Create task: missing script or agent_id from %s", r.RemoteAddr)
+			http.Error(w, "script and agent_id are required", http.StatusBadRequest)
 			return
 		}
 		task := &models.Task{
 			ID:        newID(),
-			Type:      req.Type,
+			Script:    req.Script,
+			Config:    req.Config,
 			Status:    models.TaskStatusPending,
 			AgentID:   req.AgentID,
-			Payload:   req.Payload,
 			CreatedAt: time.Now(),
 			UpdatedAt: time.Now(),
 		}
 		s.store.createTask(task)
 		s.notifier.notify(task.AgentID)
-		utils.Logger.Infof("Task %s created: type=%s agent=%s", task.ID, task.Type, task.AgentID)
+		utils.Logger.Infof("Task %s created: script=%s agent=%s", task.ID, task.Script, task.AgentID)
 		writeJSON(w, http.StatusCreated, map[string]string{"id": task.ID})
 
 	default:

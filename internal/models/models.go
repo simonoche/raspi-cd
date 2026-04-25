@@ -2,15 +2,6 @@ package models
 
 import "time"
 
-type TaskType string
-
-const (
-	TaskTypeDeploy      TaskType = "deploy"
-	TaskTypeScript      TaskType = "script"
-	TaskTypeRestart     TaskType = "restart"
-	TaskTypeNamedScript TaskType = "named_script"
-)
-
 type TaskStatus string
 
 const (
@@ -23,10 +14,10 @@ const (
 // Task is a unit of work queued for a specific agent.
 type Task struct {
 	ID        string                 `json:"id"`
-	Type      TaskType               `json:"type"`
+	Script    string                 `json:"script"`
+	Config    map[string]interface{} `json:"config,omitempty"`
 	Status    TaskStatus             `json:"status"`
 	AgentID   string                 `json:"agent_id"`
-	Payload   map[string]interface{} `json:"payload"`
 	CreatedAt time.Time              `json:"created_at"`
 	UpdatedAt time.Time              `json:"updated_at"`
 	Output    string                 `json:"output,omitempty"`
@@ -55,16 +46,16 @@ type HeartbeatRequest struct {
 
 // CreateTaskRequest is the body of POST /api/v1/tasks.
 type CreateTaskRequest struct {
-	Type    TaskType               `json:"type"`
 	AgentID string                 `json:"agent_id"`
-	Payload map[string]interface{} `json:"payload"`
+	Script  string                 `json:"script"`
+	Config  map[string]interface{} `json:"config,omitempty"`
 }
 
 // BroadcastTaskRequest is the body of POST /api/v1/tasks/broadcast.
-// It creates one task per online agent with the same type and payload.
+// It creates one task per online agent with the same script and config.
 type BroadcastTaskRequest struct {
-	Type    TaskType               `json:"type"`
-	Payload map[string]interface{} `json:"payload"`
+	Script string                 `json:"script"`
+	Config map[string]interface{} `json:"config,omitempty"`
 }
 
 // BroadcastTaskItem is one entry in the response of POST /api/v1/tasks/broadcast.

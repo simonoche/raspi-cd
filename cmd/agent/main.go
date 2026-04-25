@@ -210,7 +210,7 @@ func poll(ctx context.Context, client *agent.Client, executor *agent.Executor, a
 	}
 
 	for _, task := range tasks {
-		utils.Logger.Infof("Picked up task %s (type: %s)", task.ID, task.Type)
+		utils.Logger.Infof("Picked up task %s (script: %s)", task.ID, task.Script)
 
 		// Tell the server we have started before executing — if we crash
 		// mid-task the server will show "running" rather than "pending".

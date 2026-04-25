@@ -31,20 +31,9 @@ func (e *Executor) Run(task *models.Task) models.TaskResultRequest {
 	start := time.Now()
 	result := models.TaskResultRequest{AgentID: e.agentID}
 
-	utils.Logger.Infof("Executing task %s (type: %s)", task.ID, task.Type)
+	utils.Logger.Infof("Executing task %s (script: %s)", task.ID, task.Script)
 
-	switch task.Type {
-	case models.TaskTypeDeploy:
-		result.Output, result.Error = e.deploy(task.Payload)
-	case models.TaskTypeScript:
-		result.Output, result.Error = e.script(task.Payload)
-	case models.TaskTypeRestart:
-		result.Output, result.Error = e.restart(task.Payload)
-	case models.TaskTypeNamedScript:
-		result.Output, result.Error = e.namedScript(task)
-	default:
-		result.Error = fmt.Sprintf("unknown task type: %s", task.Type)
-	}
+	result.Output, result.Error = e.run(task)
 
 	result.DurationMs = time.Since(start).Milliseconds()
 	if result.Error == "" {
@@ -57,26 +46,18 @@ func (e *Executor) Run(task *models.Task) models.TaskResultRequest {
 	return result
 }
 
-// namedScript looks up a pre-installed script by name and runs it,
-// exposing the task's config payload as environment variables.
-//
-// Payload:
-//
-//	{
-//	  "name":   "deploy-myapp",         // required — maps to <scripts_dir>/deploy-myapp.sh
-//	  "config": { "key": "value", ... } // optional — passed as env vars to the script
-//	}
-//
-// Environment variables injected into the script:
+// run looks up a pre-installed script by name and executes it.
+// The script must exist at <scripts_dir>/<name>.sh and be executable.
+// task.Config is passed as environment variables:
 //
 //	RASPICD_TASK_ID          — ID of this task
 //	RASPICD_AGENT_ID         — ID of this agent
 //	RASPICD_CONFIG           — full config as a JSON string
 //	RASPICD_CONFIG_<KEY>     — one var per top-level config key (string/number/bool only)
-func (e *Executor) namedScript(task *models.Task) (output, errMsg string) {
-	name, _ := task.Payload["name"].(string)
+func (e *Executor) run(task *models.Task) (output, errMsg string) {
+	name := task.Script
 	if name == "" {
-		return "", "missing name in payload"
+		return "", "missing script name"
 	}
 
 	// Prevent path traversal: only [a-zA-Z0-9_-] are allowed in script names.
@@ -97,10 +78,8 @@ func (e *Executor) namedScript(task *models.Task) (output, errMsg string) {
 		return "", fmt.Sprintf("script %s is not executable (run: chmod +x %s)", scriptPath, scriptPath)
 	}
 
-	config, _ := task.Payload["config"].(map[string]interface{})
-
 	cmd := exec.Command(scriptPath)
-	cmd.Env = buildEnv(task.ID, e.agentID, config)
+	cmd.Env = buildEnv(task.ID, e.agentID, task.Config)
 
 	var buf bytes.Buffer
 	cmd.Stdout = &buf
@@ -114,7 +93,7 @@ func (e *Executor) namedScript(task *models.Task) (output, errMsg string) {
 	return buf.String(), ""
 }
 
-// buildEnv constructs the environment for a named script.
+// buildEnv constructs the environment for a script.
 // It starts from the current process environment so the script inherits PATH,
 // HOME, etc., then appends RASPICD_* variables.
 func buildEnv(taskID, agentID string, config map[string]interface{}) []string {
@@ -161,112 +140,4 @@ func isValidScriptName(name string) bool {
 		}
 	}
 	return true
-}
-
-// ---- existing task types ---------------------------------------------------
-
-// deploy clones or updates a git repository, then runs the provided commands.
-//
-// Required payload fields:
-//   - repo_url   — git remote URL
-//   - target_dir — local path on the Pi
-//
-// Optional payload fields:
-//   - ref      — branch or tag to checkout (default: "main")
-//   - commands — []string of shell commands executed inside target_dir
-func (e *Executor) deploy(payload map[string]interface{}) (output, errMsg string) {
-	repoURL, _ := payload["repo_url"].(string)
-	targetDir, _ := payload["target_dir"].(string)
-	ref, _ := payload["ref"].(string)
-
-	if repoURL == "" {
-		return "", "missing repo_url in payload"
-	}
-	if targetDir == "" {
-		return "", "missing target_dir in payload"
-	}
-	if ref == "" {
-		ref = "main"
-	}
-
-	utils.Logger.Infof("Deploy: repo=%s ref=%s dir=%s", repoURL, ref, targetDir)
-
-	var buf bytes.Buffer
-
-	_, statErr := os.Stat(targetDir + "/.git")
-	switch {
-	case os.IsNotExist(statErr):
-		utils.Logger.Infof("Deploy: cloning %s (branch/tag: %s)", repoURL, ref)
-		if err := runCmd(&buf, "", "git", "clone", "--branch", ref, repoURL, targetDir); err != nil {
-			return buf.String(), err.Error()
-		}
-	case statErr == nil:
-		utils.Logger.Infof("Deploy: updating existing repo at %s to %s", targetDir, ref)
-		if err := runCmd(&buf, "", "git", "-C", targetDir, "fetch", "--tags", "--prune", "origin"); err != nil {
-			return buf.String(), err.Error()
-		}
-		if err := runCmd(&buf, "", "git", "-C", targetDir, "checkout", "-f", ref); err != nil {
-			return buf.String(), err.Error()
-		}
-		// best-effort: succeeds for branches, silently fails for tags (detached HEAD)
-		_ = runCmd(&buf, "", "git", "-C", targetDir, "pull", "--ff-only")
-	default:
-		return "", fmt.Sprintf("stat %s: %v", targetDir+"/.git", statErr)
-	}
-
-	rawCmds, _ := payload["commands"].([]interface{})
-	for _, raw := range rawCmds {
-		line, ok := raw.(string)
-		if !ok {
-			continue
-		}
-		utils.Logger.Infof("Deploy: running command: %s", line)
-		fmt.Fprintf(&buf, "$ %s\n", line)
-		if err := runCmd(&buf, targetDir, "bash", "-c", line); err != nil {
-			return buf.String(), err.Error()
-		}
-	}
-
-	return buf.String(), ""
-}
-
-// script runs an arbitrary shell script.
-// Payload: { "script": "<bash commands>" }
-func (e *Executor) script(payload map[string]interface{}) (output, errMsg string) {
-	script, _ := payload["script"].(string)
-	if script == "" {
-		return "", "missing script in payload"
-	}
-	utils.Logger.Infof("Script: running inline script (%d bytes)", len(script))
-	var buf bytes.Buffer
-	if err := runCmd(&buf, "", "bash", "-c", script); err != nil {
-		return buf.String(), err.Error()
-	}
-	return buf.String(), ""
-}
-
-// restart restarts a systemd service.
-// Payload: { "service": "<name>" }
-func (e *Executor) restart(payload map[string]interface{}) (output, errMsg string) {
-	service, _ := payload["service"].(string)
-	if service == "" {
-		return "", "missing service in payload"
-	}
-	utils.Logger.Infof("Restart: service=%s", service)
-	var buf bytes.Buffer
-	if err := runCmd(&buf, "", "systemctl", "restart", service); err != nil {
-		return buf.String(), err.Error()
-	}
-	return buf.String(), ""
-}
-
-// runCmd executes a command, writing combined stdout+stderr to buf.
-func runCmd(buf *bytes.Buffer, dir, name string, args ...string) error {
-	cmd := exec.Command(name, args...)
-	cmd.Stdout = buf
-	cmd.Stderr = buf
-	if dir != "" {
-		cmd.Dir = dir
-	}
-	return cmd.Run()
 }
