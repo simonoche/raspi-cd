@@ -3,6 +3,7 @@ package server
 import (
 	"encoding/json"
 	"os"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -86,6 +87,10 @@ func (s *memStore) persist() {
 	b, err := json.Marshal(data)
 	if err != nil {
 		utils.Logger.Errorf("Persist store: marshal: %v", err)
+		return
+	}
+	if err := os.MkdirAll(filepath.Dir(s.filePath), 0700); err != nil {
+		utils.Logger.Errorf("Persist store: mkdir: %v", err)
 		return
 	}
 	tmp := s.filePath + ".tmp"
