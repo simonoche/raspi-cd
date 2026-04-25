@@ -87,6 +87,7 @@ curl https://your-server.example.com/health
 | `RASPICD_SECRET` | Yes | — | CI/CD Bearer token secret (used by pipelines to create tasks) |
 | `RASPICD_AGENT_SECRET` | Yes | — | Agent Bearer token secret (used by agents to poll and report) |
 | `RASPICD_SIGNING_KEY` | Yes* | — | Ed25519 private key seed as 64 hex chars. See [Task signing](#task-signing) |
+| `RASPICD_DATA_FILE` | No | `/data/store.json` | Path to the JSON file used to persist tasks and agents across restarts |
 | `RASPICD_BIND` | No | `:8080` | Listen address |
 | `RASPICD_AGENT_TIMEOUT` | No | `90s` | Mark agents offline after this duration without a heartbeat |
 | `RASPICD_DEBUG` | No | `false` | Verbose logging |

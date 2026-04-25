@@ -31,8 +31,9 @@ type Server struct {
 	cancel       context.CancelFunc
 }
 
-// New creates and configures a Server.
-func New(bindAddr, ciSecret, agentSecret, version string, agentTimeout time.Duration, staticFS fs.FS, signingKey ed25519.PrivateKey) *Server {
+// New creates and configures a Server. dataFile is the path to the JSON
+// persistence file; pass an empty string to disable persistence.
+func New(bindAddr, ciSecret, agentSecret, version, dataFile string, agentTimeout time.Duration, staticFS fs.FS, signingKey ed25519.PrivateKey) *Server {
 	s := &Server{
 		bindAddr:     bindAddr,
 		version:      version,
@@ -41,7 +42,7 @@ func New(bindAddr, ciSecret, agentSecret, version string, agentTimeout time.Dura
 		agentTimeout: agentTimeout,
 		staticFS:     staticFS,
 		signingKey:   signingKey,
-		store:        newMemStore(),
+		store:        newMemStore(dataFile),
 		notifier:     newNotifier(),
 		router:       http.NewServeMux(),
 	}

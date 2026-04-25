@@ -55,6 +55,13 @@ func main() {
 				EnvVars: []string{"RASPICD_AGENT_TIMEOUT"},
 			},
 			&cli.StringFlag{
+				Name:    "data-file",
+				Aliases: []string{"f"},
+				Usage:   "path to the JSON file used to persist tasks and agents across restarts",
+				Value:   "/data/store.json",
+				EnvVars: []string{"RASPICD_DATA_FILE"},
+			},
+			&cli.StringFlag{
 				Name:    "signing-key",
 				Aliases: []string{"sk"},
 				Usage:   "Ed25519 private key seed as 64 hex chars (32 bytes). Generate once with: openssl rand -hex 32",
@@ -86,7 +93,7 @@ func run(c *cli.Context) error {
 		return err
 	}
 
-	srv := server.New(c.String("bind"), c.String("secret"), c.String("agent-secret"), version, c.Duration("agent-timeout"), static.FS, signingKey)
+	srv := server.New(c.String("bind"), c.String("secret"), c.String("agent-secret"), version, c.String("data-file"), c.Duration("agent-timeout"), static.FS, signingKey)
 
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
