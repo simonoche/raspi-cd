@@ -1,6 +1,6 @@
-# RasPiCD
+# RasPi CD
 
-Deploy to Raspberry Pis from any CI/CD pipeline.
+Deploy to Raspberry Pis (or any other host) from any CI/CD pipeline.
 
 **How it works:** a lightweight server sits on the public internet. Each Pi runs an agent that maintains a persistent long-poll connection to the server. Your CI/CD pipeline pushes a task — the agent receives it instantly and executes it locally.
 
