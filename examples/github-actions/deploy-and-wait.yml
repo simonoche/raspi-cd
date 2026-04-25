@@ -1,15 +1,14 @@
-# Deploy and wait for the result.
+# Deploy and wait for the result (single agent, explicit timeout config).
 #
-# Dispatches a deploy task, then polls the server every 10 seconds until the
-# agent reports completion. The CI job fails if the deployment fails or if it
-# does not complete within the timeout (default: 5 minutes).
+# Same as deploy-named-script.yml but with more visible timeout/polling
+# parameters — useful as a starting point when you want to tune those.
 #
-# Use this when you need the pipeline to reflect whether the Pi actually
-# succeeded — e.g. before merging to a release branch or sending a notification.
+# The script must be pre-installed on the Pi at:
+#   /etc/raspicd/scripts/deploy-myapp.sh
 #
 # Required repository secrets:
 #   RASPICD_SERVER  — e.g. https://deploy.example.com
-#   RASPICD_SECRET  — the shared Bearer token secret
+#   RASPICD_SECRET  — the CI/CD Bearer token secret
 
 name: Deploy and wait
 
@@ -22,7 +21,6 @@ env:
   RASPICD_SERVER: ${{ secrets.RASPICD_SERVER }}
   RASPICD_SECRET: ${{ secrets.RASPICD_SECRET }}
   AGENT_ID: raspi-living-room
-  TARGET_DIR: /opt/myapp
   POLL_INTERVAL: 10   # seconds between status checks
   TIMEOUT_STEPS: 30   # 30 × 10s = 5 minutes
 
@@ -32,23 +30,17 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Dispatch deploy task
+      - name: Dispatch task
         id: dispatch
         run: |
           RESPONSE=$(curl -sf -X POST "$RASPICD_SERVER/api/v1/tasks" \
             -H "Authorization: Bearer $RASPICD_SECRET" \
             -H "Content-Type: application/json" \
             -d '{
-              "type": "deploy",
               "agent_id": "'"$AGENT_ID"'",
-              "payload": {
-                "repo_url":   "https://github.com/${{ github.repository }}.git",
-                "ref":        "${{ github.ref_name }}",
-                "target_dir": "'"$TARGET_DIR"'",
-                "commands":   [
-                  "make build",
-                  "systemctl restart myapp"
-                ]
+              "script":   "deploy-myapp",
+              "config": {
+                "ref": "${{ github.ref_name }}"
               }
             }')
 

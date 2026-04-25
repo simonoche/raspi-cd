@@ -1,14 +1,17 @@
-# Deploy using a named script (Option A — recommended).
+# Deploy and wait for the result (single agent).
 #
-# The script content lives on the Pi at /etc/raspicd/scripts/<name>.sh.
-# CI/CD only sends the script name and a config payload — no raw commands
-# travel over the wire.
+# Dispatches a task to one agent, then polls until the agent reports
+# completion. The CI job fails if the script fails or if it does not
+# complete within the timeout (default: 5 minutes).
+#
+# The script must be pre-installed on the Pi at:
+#   /etc/raspicd/scripts/deploy-myapp.sh
 #
 # Required repository secrets:
 #   RASPICD_SERVER  — e.g. https://deploy.example.com
-#   RASPICD_SECRET  — the shared Bearer token secret
+#   RASPICD_SECRET  — the CI/CD Bearer token secret
 
-name: Deploy (named script)
+name: Deploy (wait for result)
 
 on:
   push:
@@ -29,22 +32,19 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Dispatch named_script task
+      - name: Dispatch task
         id: dispatch
         run: |
           RESPONSE=$(curl -sf -X POST "$RASPICD_SERVER/api/v1/tasks" \
             -H "Authorization: Bearer $RASPICD_SECRET" \
             -H "Content-Type: application/json" \
             -d '{
-              "type":     "named_script",
               "agent_id": "'"$AGENT_ID"'",
-              "payload":  {
-                "name": "deploy-myapp",
-                "config": {
-                  "ref":     "${{ github.ref_name }}",
-                  "env":     "production",
-                  "restart": true
-                }
+              "script":   "deploy-myapp",
+              "config": {
+                "ref":     "${{ github.ref_name }}",
+                "env":     "production",
+                "restart": true
               }
             }')
 

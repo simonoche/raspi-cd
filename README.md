@@ -235,9 +235,9 @@ Stopping the agent with `systemctl stop` sends SIGTERM — the agent finishes an
 
 The agent connects on startup and maintains a persistent long-poll connection — tasks are delivered in milliseconds. If the connection drops the agent reconnects automatically using exponential backoff (1s, 2s, 4s … up to `RASPICD_POLL_INTERVAL`, default 60s) with ±25% jitter to avoid thundering herds. When stopped gracefully (e.g. `systemctl stop` or CTRL+C), the agent notifies the server immediately and its status switches to offline.
 
-### Set up named scripts
+### Set up scripts
 
-Named scripts are the recommended way to deploy (see [Task types](#task-types) below). Create the scripts directory and add executable shell scripts to it:
+Scripts live on the Pi and are triggered by name from CI/CD. No code travels over the wire — only a name and optional config data. Create the scripts directory and add executable shell scripts to it:
 
 ```bash
 sudo mkdir -p /etc/raspicd/scripts
@@ -277,74 +277,25 @@ See [`examples/named-scripts/`](examples/named-scripts/) for a fully annotated e
 
 ## 3. Trigger a Deployment from CI/CD
 
-### Task types
+### Run a script
 
-#### `named_script` — run a pre-installed script by name (recommended)
-
-The most secure option. CI/CD sends only a script name; the actual script lives on the Pi. No raw commands travel over the wire.
+Send the name of a script to run and an optional `config` object. The agent resolves the name to a file on the Pi and never receives raw commands.
 
 ```json
 {
-  "type":     "named_script",
   "agent_id": "raspi-living-room",
-  "payload": {
-    "name": "deploy-myapp",
-    "config": {
-      "ref": "v1.2.3",
-      "env": "production"
-    }
+  "script":   "deploy-myapp",
+  "config": {
+    "ref": "v1.2.3",
+    "env": "production"
   }
 }
 ```
 
-The agent resolves `name` to `/etc/raspicd/scripts/deploy-myapp.sh` and validates it before executing:
-- Name must match `[a-zA-Z0-9_-]+` (no path traversal)
-- Script must exist in the scripts directory
+The agent validates the name before running:
+- Must match `[a-zA-Z0-9_-]+` (no path traversal)
+- Script must exist in the scripts directory (`/etc/raspicd/scripts/`)
 - Script must have the execute bit set (`chmod +x`)
-
-#### `deploy` — clone or update a git repository, then run commands
-
-```json
-{
-  "type": "deploy",
-  "agent_id": "raspi-living-room",
-  "payload": {
-    "repo_url":   "https://github.com/you/myapp.git",
-    "ref":        "main",
-    "target_dir": "/opt/myapp",
-    "commands":   [
-      "make build",
-      "systemctl restart myapp"
-    ]
-  }
-}
-```
-
-If `target_dir` does not contain a git repository, a fresh clone is performed. Otherwise the repo is fetched and the requested ref is checked out.
-
-#### `script` — run an arbitrary shell script
-
-```json
-{
-  "type": "script",
-  "agent_id": "raspi-living-room",
-  "payload": {
-    "script": "apt-get update && apt-get upgrade -y"
-  }
-}
-```
-
-#### `restart` — restart a systemd service
-
-```json
-{
-  "type": "restart",
-  "agent_id": "raspi-living-room",
-  "payload": {
-    "service": "myapp"
-  }
-}
-```
 
 ### Broadcast to all online agents
 
@@ -355,11 +306,8 @@ curl -X POST https://your-server.example.com/api/v1/tasks/broadcast \
   -H "Authorization: Bearer $RASPICD_SECRET" \
   -H "Content-Type: application/json" \
   -d '{
-    "type": "named_script",
-    "payload": {
-      "name": "deploy-myapp",
-      "config": { "ref": "v1.2.3" }
-    }
+    "script": "deploy-myapp",
+    "config": { "ref": "v1.2.3" }
   }'
 # [{"agent_id":"raspi-living-room","task_id":"abc123"},{"agent_id":"raspi-garage","task_id":"def456"}]
 ```
@@ -368,9 +316,9 @@ See [`examples/github-actions/write-commit-id.yml`](examples/github-actions/writ
 
 ### GitHub Actions
 
-Add `RASPICD_SECRET` and `RASPICD_SERVER` as repository secrets. A ready-to-use workflow is available at [`examples/github-actions/deploy-named-script.yml`](examples/github-actions/deploy-named-script.yml).
+Add `RASPICD_SECRET` and `RASPICD_SERVER` as repository secrets. Ready-to-use workflows are in [`examples/github-actions/`](examples/github-actions/).
 
-Minimal example using `named_script`:
+Minimal example:
 
 ```yaml
 - name: Deploy to Raspberry Pi
@@ -379,14 +327,11 @@ Minimal example using `named_script`:
       -H "Authorization: Bearer $RASPICD_SECRET" \
       -H "Content-Type: application/json" \
       -d '{
-        "type":     "named_script",
         "agent_id": "raspi-living-room",
-        "payload": {
-          "name": "deploy-myapp",
-          "config": {
-            "ref": "${{ github.ref_name }}",
-            "env": "production"
-          }
+        "script":   "deploy-myapp",
+        "config": {
+          "ref": "${{ github.ref_name }}",
+          "env": "production"
         }
       }'
   env:
@@ -407,14 +352,11 @@ deploy:
         -H "Authorization: Bearer $RASPICD_SECRET" \
         -H "Content-Type: application/json" \
         -d '{
-          "type":     "named_script",
           "agent_id": "raspi-living-room",
-          "payload": {
-            "name": "deploy-myapp",
-            "config": {
-              "ref": "'$CI_COMMIT_REF_NAME'",
-              "env": "production"
-            }
+          "script":   "deploy-myapp",
+          "config": {
+            "ref": "'$CI_COMMIT_REF_NAME'",
+            "env": "production"
           }
         }'
   only:
@@ -428,14 +370,11 @@ curl -X POST https://your-server.example.com/api/v1/tasks \
   -H "Authorization: Bearer $RASPICD_SECRET" \
   -H "Content-Type: application/json" \
   -d '{
-    "type":     "named_script",
     "agent_id": "raspi-living-room",
-    "payload": {
-      "name": "deploy-myapp",
-      "config": {
-        "ref": "v1.2.3",
-        "env": "production"
-      }
+    "script":   "deploy-myapp",
+    "config": {
+      "ref": "v1.2.3",
+      "env": "production"
     }
   }'
 ```

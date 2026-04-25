@@ -4,11 +4,14 @@
 # All deployments run concurrently. The workflow fails if any one of them fails.
 #
 # To add a Pi, extend the `include` list under `strategy.matrix`.
-# Each entry can override target_dir and commands independently.
+# Each entry can point to a different script if the Pis run different workloads.
+#
+# Scripts must be pre-installed on each Pi at:
+#   /etc/raspicd/scripts/<script>.sh
 #
 # Required repository secrets:
 #   RASPICD_SERVER  — e.g. https://deploy.example.com
-#   RASPICD_SECRET  — the shared Bearer token secret
+#   RASPICD_SECRET  — the CI/CD Bearer token secret
 
 name: Deploy (multi-agent)
 
@@ -33,33 +36,25 @@ jobs:
       matrix:
         include:
           - agent_id: raspi-living-room
-            target_dir: /opt/myapp
-            commands: '["make build", "systemctl restart myapp"]'
+            script: deploy-myapp
 
           - agent_id: raspi-garage
-            target_dir: /opt/myapp
-            commands: '["make build", "systemctl restart myapp"]'
+            script: deploy-myapp
 
           - agent_id: raspi-office
-            target_dir: /opt/myapp
-            commands: '["make build", "systemctl restart myapp"]'
+            script: deploy-myapp
 
     steps:
-      - name: Dispatch deploy task
+      - name: Dispatch task
         id: dispatch
         run: |
           RESPONSE=$(curl -sf -X POST "$RASPICD_SERVER/api/v1/tasks" \
             -H "Authorization: Bearer $RASPICD_SECRET" \
             -H "Content-Type: application/json" \
             -d '{
-              "type": "deploy",
               "agent_id": "${{ matrix.agent_id }}",
-              "payload": {
-                "repo_url":   "https://github.com/${{ github.repository }}.git",
-                "ref":        "${{ github.ref_name }}",
-                "target_dir": "${{ matrix.target_dir }}",
-                "commands":   ${{ matrix.commands }}
-              }
+              "script":   "${{ matrix.script }}",
+              "config":   { "ref": "${{ github.ref_name }}" }
             }')
 
           TASK_ID=$(echo "$RESPONSE" | jq -r .id)

@@ -1,8 +1,17 @@
-# Write the current commit SHA to /opt/commitid.txt on every online agent.
+# Write the current commit SHA to all online agents via broadcast.
 #
 # Uses POST /api/v1/tasks/broadcast — the server fans out one task per online
 # agent and returns all task IDs. The workflow then polls until every task
 # completes (or fails).
+#
+# The script must be pre-installed on every Pi at:
+#   /etc/raspicd/scripts/write-commit-id.sh
+#
+# Example script:
+#   #!/usr/bin/env bash
+#   set -euo pipefail
+#   echo "$RASPICD_CONFIG_SHA" > /opt/commitid.txt
+#   echo "Written $RASPICD_CONFIG_SHA to /opt/commitid.txt"
 #
 # Required repository secrets:
 #   RASPICD_SERVER  — e.g. https://deploy.example.com
@@ -27,17 +36,15 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Broadcast script task
+      - name: Broadcast task
         id: dispatch
         run: |
           RESPONSE=$(curl -sf -X POST "$RASPICD_SERVER/api/v1/tasks/broadcast" \
             -H "Authorization: Bearer $RASPICD_SECRET" \
             -H "Content-Type: application/json" \
             -d '{
-              "type": "script",
-              "payload": {
-                "script": "echo ${{ github.sha }} > /opt/commitid.txt && echo Written ${{ github.sha }} to /opt/commitid.txt"
-              }
+              "script": "write-commit-id",
+              "config": { "sha": "${{ github.sha }}" }
             }')
 
           echo "Broadcast response: $RESPONSE"

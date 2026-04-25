@@ -1,13 +1,16 @@
 # Basic deployment workflow.
 #
-# Triggers on every push to main and dispatches a deploy task to one agent.
+# Triggers on every push to main and dispatches a task to one agent.
 # The workflow finishes as soon as the task is accepted by the server —
-# it does NOT wait for the Pi to finish executing it.
+# it does NOT wait for the Pi to finish executing.
 # See deploy-and-wait.yml if you need CI to fail when the deployment fails.
+#
+# The script must be pre-installed on the Pi at:
+#   /etc/raspicd/scripts/deploy-myapp.sh
 #
 # Required repository secrets:
 #   RASPICD_SERVER  — e.g. https://deploy.example.com
-#   RASPICD_SECRET  — the shared Bearer token secret
+#   RASPICD_SECRET  — the CI/CD Bearer token secret
 
 name: Deploy
 
@@ -22,23 +25,15 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Send deploy task to RasPiCD
+      - name: Send task to RasPiCD
         run: |
           curl -sf -X POST "$RASPICD_SERVER/api/v1/tasks" \
             -H "Authorization: Bearer $RASPICD_SECRET" \
             -H "Content-Type: application/json" \
             -d '{
-              "type": "deploy",
               "agent_id": "raspi-living-room",
-              "payload": {
-                "repo_url":   "https://github.com/${{ github.repository }}.git",
-                "ref":        "${{ github.ref_name }}",
-                "target_dir": "/opt/myapp",
-                "commands":   [
-                  "make build",
-                  "systemctl restart myapp"
-                ]
-              }
+              "script":   "deploy-myapp",
+              "config":   { "ref": "${{ github.ref_name }}" }
             }'
         env:
           RASPICD_SERVER: ${{ secrets.RASPICD_SERVER }}
