@@ -252,6 +252,24 @@ sudo chmod 600 /etc/raspicd/agent.env
 
 *If omitted, signature verification is skipped with a warning — strongly recommended in production.
 
+### Agent ID uniqueness
+
+Each agent must have a **unique** `RASPICD_AGENT_ID` across your entire deployment. The server enforces this uniqueness:
+
+- When Agent A connects with ID `raspi-living-room`, it is registered as online
+- If Agent B attempts to connect with the same ID, it will be rejected immediately
+- Agent B receives error: `"Agent ID already connected. Only one connection per agent ID is allowed."`
+- Agent B logs the rejection and exits (no automatic retries)
+- Agent A continues running unaffected
+
+This prevents configuration errors where the same agent ID is accidentally used on multiple devices, which would cause both connections to become unstable.
+
+**If you see "server rejected connection" errors:**
+1. Verify each Pi has a unique `RASPICD_AGENT_ID` in `/etc/raspicd/agent.env`
+2. Check for any running agents with duplicate IDs: `ps aux | grep raspicd-agent`
+3. Stop duplicate agent instances with `sudo systemctl stop raspicd-agent`
+4. Verify the running agent with `sudo systemctl status raspicd-agent`
+
 ### Run as a systemd daemon
 
 Systemd keeps the agent running across reboots and restarts it automatically if it crashes.
