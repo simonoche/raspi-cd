@@ -14,7 +14,7 @@ depends:
   - openssl
 
 contents:
-  - src: bin/raspicd-agent-linux-${BINARY_ARCH}
+  - src: bin/raspicd-agent-deb
     dst: /usr/bin/raspicd-agent
     file_info:
       mode: 0755

@@ -90,14 +90,22 @@ jobs:
         run: |
           VERSION="${GITHUB_REF_NAME#v}"   # strip leading 'v' for deb versioning
 
-          # Agent debs
-          BINARY_ARCH=amd64 DEB_ARCH=amd64 VERSION="$VERSION" nfpm pkg --config nfpm-agent.yml --packager deb --target bin/
-          BINARY_ARCH=arm64 DEB_ARCH=arm64 VERSION="$VERSION" nfpm pkg --config nfpm-agent.yml --packager deb --target bin/
-          BINARY_ARCH=armv7 DEB_ARCH=armhf VERSION="$VERSION" nfpm pkg --config nfpm-agent.yml --packager deb --target bin/
+          # Agent debs — copy each arch binary to the fixed staging path nfpm-agent.yml expects
+          cp bin/raspicd-agent-linux-amd64 bin/raspicd-agent-deb
+          DEB_ARCH=amd64 VERSION="$VERSION" nfpm pkg --config nfpm-agent.yml --packager deb --target bin/
+
+          cp bin/raspicd-agent-linux-arm64 bin/raspicd-agent-deb
+          DEB_ARCH=arm64 VERSION="$VERSION" nfpm pkg --config nfpm-agent.yml --packager deb --target bin/
+
+          cp bin/raspicd-agent-linux-armv7 bin/raspicd-agent-deb
+          DEB_ARCH=armhf VERSION="$VERSION" nfpm pkg --config nfpm-agent.yml --packager deb --target bin/
 
           # Server debs
-          BINARY_ARCH=amd64 DEB_ARCH=amd64 VERSION="$VERSION" nfpm pkg --config nfpm-server.yml --packager deb --target bin/
-          BINARY_ARCH=arm64 DEB_ARCH=arm64 VERSION="$VERSION" nfpm pkg --config nfpm-server.yml --packager deb --target bin/
+          cp bin/raspicd-server-linux-amd64 bin/raspicd-server-deb
+          DEB_ARCH=amd64 VERSION="$VERSION" nfpm pkg --config nfpm-server.yml --packager deb --target bin/
+
+          cp bin/raspicd-server-linux-arm64 bin/raspicd-server-deb
+          DEB_ARCH=arm64 VERSION="$VERSION" nfpm pkg --config nfpm-server.yml --packager deb --target bin/
 
       - name: Create GitHub Release and upload assets
         uses: softprops/action-gh-release@v2

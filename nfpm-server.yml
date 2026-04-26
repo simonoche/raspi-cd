@@ -14,7 +14,7 @@ depends:
   - openssl
 
 contents:
-  - src: bin/raspicd-server-linux-${BINARY_ARCH}
+  - src: bin/raspicd-server-deb
     dst: /usr/bin/raspicd-server
     file_info:
       mode: 0755
