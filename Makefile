@@ -5,7 +5,7 @@
         test clean docker-build docker-up docker-down docker-logs
 
 VERSION     ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
-DEB_VERSION := $(shell echo $(VERSION) | sed 's/^v//')
+DEB_VERSION := $(shell echo $(VERSION) | sed 's/^v//' | sed 's/-[0-9]*-g[a-f0-9]*\(-dirty\)\?$$//')
 LDFLAGS     := -ldflags="-s -w -X main.version=$(VERSION)"
 BIN         := bin
 
