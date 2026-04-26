@@ -22,6 +22,13 @@ contents:
   - src: packaging/agent/raspicd-agent.service
     dst: /lib/systemd/system/raspicd-agent.service
 
+  - src: packaging/agent/sudoers
+    dst: /etc/sudoers.d/raspicd
+    file_info:
+      owner: root
+      group: root
+      mode: 0440
+
 scripts:
   postinstall: packaging/agent/postinst
   preremove: packaging/agent/prerm
