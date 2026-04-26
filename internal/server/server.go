@@ -81,6 +81,11 @@ func (s *Server) Start() error {
 	return s.httpSrv.ListenAndServe()
 }
 
+// ServeHTTP implements http.Handler, enabling use with httptest.NewServer in tests.
+func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	s.withVersion(s.router).ServeHTTP(w, r)
+}
+
 // Stop shuts down the server.
 func (s *Server) Stop() error {
 	utils.Logger.Info("Server shutting down")

@@ -61,7 +61,11 @@ deb-server:
 	BINARY_ARCH=arm64 VERSION=$(DEB_VERSION) nfpm pkg --config nfpm-server.yml --packager deb --arch arm64 --target $(BIN)/
 
 test:
-	go test -v ./...
+	go test -race ./...
+
+test-coverage:
+	go test -race -coverprofile=coverage.out -covermode=atomic ./...
+	go tool cover -func=coverage.out
 
 clean:
 	rm -rf $(BIN)/
