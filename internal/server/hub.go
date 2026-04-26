@@ -34,6 +34,14 @@ func (h *hub) register(agentID string, c *agentConn) {
 	h.conns[agentID] = c
 }
 
+// isConnected returns true if agentID already has an active connection.
+func (h *hub) isConnected(agentID string) bool {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	_, ok := h.conns[agentID]
+	return ok
+}
+
 // unregister removes the connection for agentID if it still matches c
 // (guards against a new connection unregistering itself on the old conn's behalf).
 func (h *hub) unregister(agentID string, c *agentConn) {

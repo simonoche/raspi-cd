@@ -22,6 +22,7 @@ const (
 	WSMsgHello  WSMsgType = "hello"  // agent → server: initial registration
 	WSMsgTask   WSMsgType = "task"   // server → agent: task to execute
 	WSMsgResult WSMsgType = "result" // agent → server: task result
+	WSMsgError  WSMsgType = "error"  // server → agent: connection rejected / error
 )
 
 // WSMessage is the JSON envelope for all messages on the persistent WebSocket
@@ -45,4 +46,7 @@ type WSMessage struct {
 	Output     string     `json:"output,omitempty"`
 	Error      string     `json:"error,omitempty"`
 	DurationMs int64      `json:"duration_ms,omitempty"`
+
+	// error (server → agent): rejection reason
+	Reason string `json:"reason,omitempty"`
 }
