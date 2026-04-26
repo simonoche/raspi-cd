@@ -27,6 +27,70 @@ func NewClient(serverURL, agentID, secret string) *Client {
 	return &Client{serverURL: serverURL, agentID: agentID, secret: secret}
 }
 
+// VerifyServerPublicKey fetches the server's public key via GET /api/v1/pubkey and compares
+// it with the expected key. If expectedKey is non-empty and doesn't match, returns an error.
+// If expectedKey is empty, logs a warning. If keys match, logs confirmation.
+//
+// This is called during agent startup as part of the handshake verification.
+func (c *Client) VerifyServerPublicKey(ctx context.Context, expectedKey string) error {
+	if expectedKey == "" {
+		utils.Logger.Warn("RASPICD_VERIFY_KEY not configured — server public key verification will be skipped at startup")
+		return nil
+	}
+
+	// Construct pubkey endpoint URL
+	httpURL := c.serverURL
+	if !strings.HasSuffix(httpURL, "/") {
+		httpURL += "/"
+	}
+	pubkeyURL := httpURL + "api/v1/pubkey"
+
+	// Create HTTP request
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, pubkeyURL, nil)
+	if err != nil {
+		return fmt.Errorf("failed to create pubkey request: %w", err)
+	}
+
+	// Fetch pubkey (unauthenticated endpoint)
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to fetch server public key from %s: %w", pubkeyURL, err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("server returned %d when fetching public key (expected 200)", resp.StatusCode)
+	}
+
+	// Parse response
+	var result map[string]string
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return fmt.Errorf("failed to parse server public key response: %w", err)
+	}
+
+	serverKey, ok := result["public_key"]
+	if !ok {
+		return fmt.Errorf("server public key response missing 'public_key' field")
+	}
+
+	// Compare keys (case-insensitive hex comparison)
+	serverKeyLower := strings.ToLower(serverKey)
+	expectedKeyLower := strings.ToLower(expectedKey)
+
+	if serverKeyLower != expectedKeyLower {
+		return fmt.Errorf(
+			"RASPICD_VERIFY_KEY mismatch: configured key does not match server's public key.\n"+
+				"  Server public key: %s\n"+
+				"  Expected key:      %s\n"+
+				"Update RASPICD_VERIFY_KEY on this agent to match the server's key, or verify the server is using the correct signing key.",
+			serverKey, expectedKey)
+	}
+
+	utils.Logger.Infof("✓ Server public key verified successfully (matches RASPICD_VERIFY_KEY)")
+	return nil
+}
+
 // Connect establishes a WebSocket connection, registers this agent, and then
 // drives the task receive/execute/report loop until the connection closes or
 // ctx is cancelled.

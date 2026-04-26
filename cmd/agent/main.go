@@ -125,6 +125,15 @@ func run(c *cli.Context) error {
 		cancel()
 	}()
 
+	// Verify server's public key matches our expected key (if configured)
+	if vkHex := c.String("verify-key"); vkHex != "" {
+		utils.Logger.Info("Verifying server public key during handshake...")
+		if err := client.VerifyServerPublicKey(ctx, vkHex); err != nil {
+			utils.Logger.Errorf("Public key verification failed: %v", err)
+			return err
+		}
+	}
+
 	bo := newBackoff(maxRetry)
 	fails := 0
 
