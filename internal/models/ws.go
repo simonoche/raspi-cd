@@ -1,5 +1,20 @@
 package models
 
+import "time"
+
+// WSWriteWait is the deadline for a single WebSocket write to complete.
+// Used by both the server write-loop and the agent write goroutine.
+const WSWriteWait = 10 * time.Second
+
+// WSPingPeriod is how often the connection owner sends a ping frame.
+// Must be strictly less than WSPongWait.
+const WSPingPeriod = 30 * time.Second
+
+// WSPongWait is the deadline for the remote side to respond with a pong.
+// Must exceed WSPingPeriod so the connection is not torn down before the
+// pong arrives.
+const WSPongWait = 60 * time.Second
+
 // WSMsgType identifies the WebSocket message direction and purpose.
 type WSMsgType string
 

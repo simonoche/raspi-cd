@@ -15,12 +15,6 @@ import (
 	"raspicd/internal/utils"
 )
 
-const (
-	wsWriteWait  = 10 * time.Second
-	wsPingPeriod = 30 * time.Second
-	wsPongWait   = 60 * time.Second
-)
-
 // Client communicates with the RasPiCD server over a persistent WebSocket.
 type Client struct {
 	serverURL string
@@ -49,9 +43,9 @@ func (c *Client) Connect(ctx context.Context, hostname, version string, exec *Ex
 	}
 	defer wsc.Close()
 
-	wsc.SetReadDeadline(time.Now().Add(wsPongWait))
+	wsc.SetReadDeadline(time.Now().Add(models.WSPongWait))
 	wsc.SetPongHandler(func(string) error {
-		wsc.SetReadDeadline(time.Now().Add(wsPongWait))
+		wsc.SetReadDeadline(time.Now().Add(models.WSPongWait))
 		return nil
 	})
 
@@ -60,12 +54,12 @@ func (c *Client) Connect(ctx context.Context, hostname, version string, exec *Ex
 
 	// Write goroutine: drains send and emits pings.
 	go func() {
-		ticker := time.NewTicker(wsPingPeriod)
+		ticker := time.NewTicker(models.WSPingPeriod)
 		defer ticker.Stop()
 		for {
 			select {
 			case <-ctx.Done():
-				wsc.SetWriteDeadline(time.Now().Add(wsWriteWait))
+				wsc.SetWriteDeadline(time.Now().Add(models.WSWriteWait))
 				wsc.WriteMessage(websocket.CloseMessage, //nolint:errcheck
 					websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""))
 				wsc.Close()
@@ -74,14 +68,14 @@ func (c *Client) Connect(ctx context.Context, hostname, version string, exec *Ex
 				if !ok {
 					return
 				}
-				wsc.SetWriteDeadline(time.Now().Add(wsWriteWait))
+				wsc.SetWriteDeadline(time.Now().Add(models.WSWriteWait))
 				if err := wsc.WriteMessage(websocket.TextMessage, msg); err != nil {
 					utils.Logger.Warnf("WS write error: %v", err)
 					wsc.Close()
 					return
 				}
 			case <-ticker.C:
-				wsc.SetWriteDeadline(time.Now().Add(wsWriteWait))
+				wsc.SetWriteDeadline(time.Now().Add(models.WSWriteWait))
 				if err := wsc.WriteMessage(websocket.PingMessage, nil); err != nil {
 					wsc.Close()
 					return

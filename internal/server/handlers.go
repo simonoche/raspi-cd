@@ -75,6 +75,28 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "healthy"})
 }
 
+// ---- task dispatch ---------------------------------------------------------
+
+// dispatchTask creates a signed pending task for agentID, persists it, and
+// pushes it to the agent's live WS connection if one is open.
+func (s *Server) dispatchTask(agentID, script string, config map[string]interface{}) (*models.Task, error) {
+	task := &models.Task{
+		ID:        newID(),
+		Script:    script,
+		Config:    config,
+		Status:    models.TaskStatusPending,
+		AgentID:   agentID,
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
+	}
+	if err := s.signTask(task); err != nil {
+		return nil, fmt.Errorf("sign task: %w", err)
+	}
+	s.store.createTask(task)
+	s.hub.push(agentID, task)
+	return task, nil
+}
+
 // ---- /api/v1/agents --------------------------------------------------------
 
 // handleAgents serves GET /api/v1/agents — list all registered agents.
@@ -117,22 +139,12 @@ func (s *Server) handleBroadcastTask(w http.ResponseWriter, r *http.Request) {
 
 	results := make([]models.BroadcastTaskItem, 0, len(online))
 	for _, a := range online {
-		task := &models.Task{
-			ID:        newID(),
-			Script:    req.Script,
-			Config:    req.Config,
-			Status:    models.TaskStatusPending,
-			AgentID:   a.ID,
-			CreatedAt: time.Now(),
-			UpdatedAt: time.Now(),
-		}
-		if err := s.signTask(task); err != nil {
-			utils.Logger.Errorf("Sign task: %v", err)
+		task, err := s.dispatchTask(a.ID, req.Script, req.Config)
+		if err != nil {
+			utils.Logger.Errorf("Dispatch task: %v", err)
 			http.Error(w, "internal error", http.StatusInternalServerError)
 			return
 		}
-		s.store.createTask(task)
-		s.hub.push(a.ID, task)
 		results = append(results, models.BroadcastTaskItem{AgentID: a.ID, TaskID: task.ID})
 	}
 	utils.Logger.Infof("Broadcast script=%s created for %d agent(s)", req.Script, len(results))
@@ -161,22 +173,12 @@ func (s *Server) handleTasks(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "script and agent_id are required", http.StatusBadRequest)
 			return
 		}
-		task := &models.Task{
-			ID:        newID(),
-			Script:    req.Script,
-			Config:    req.Config,
-			Status:    models.TaskStatusPending,
-			AgentID:   req.AgentID,
-			CreatedAt: time.Now(),
-			UpdatedAt: time.Now(),
-		}
-		if err := s.signTask(task); err != nil {
-			utils.Logger.Errorf("Sign task: %v", err)
+		task, err := s.dispatchTask(req.AgentID, req.Script, req.Config)
+		if err != nil {
+			utils.Logger.Errorf("Dispatch task: %v", err)
 			http.Error(w, "internal error", http.StatusInternalServerError)
 			return
 		}
-		s.store.createTask(task)
-		s.hub.push(task.AgentID, task)
 		utils.Logger.Infof("Task %s created: script=%s agent=%s", task.ID, task.Script, task.AgentID)
 		writeJSON(w, http.StatusCreated, map[string]string{"id": task.ID})
 

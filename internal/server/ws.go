@@ -2,6 +2,7 @@ package server
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"time"
 
@@ -11,12 +12,7 @@ import (
 	"raspicd/internal/utils"
 )
 
-const (
-	wsWriteWait  = 10 * time.Second
-	wsPingPeriod = 30 * time.Second
-	wsPongWait   = 60 * time.Second
-	wsMaxMsgSize = 64 * 1024 // 64 KB
-)
+const wsMaxMsgSize = 64 * 1024 // 64 KB
 
 var upgrader = websocket.Upgrader{
 	ReadBufferSize:  1024,
@@ -24,6 +20,24 @@ var upgrader = websocket.Upgrader{
 	// Agents connect from varied origins; origin checking is handled by the
 	// Bearer token on the Authorization header (checked before upgrade).
 	CheckOrigin: func(*http.Request) bool { return true },
+}
+
+// readHello reads and validates the first frame sent by an agent after connecting.
+// The agent must send a WSMsgHello with a non-empty AgentID within WSPongWait.
+func readHello(wsc *websocket.Conn) (*models.WSMessage, error) {
+	wsc.SetReadDeadline(time.Now().Add(models.WSPongWait))
+	_, raw, err := wsc.ReadMessage()
+	if err != nil {
+		return nil, fmt.Errorf("read: %w", err)
+	}
+	var hello models.WSMessage
+	if err := json.Unmarshal(raw, &hello); err != nil {
+		return nil, fmt.Errorf("parse: %w", err)
+	}
+	if hello.Type != models.WSMsgHello || hello.AgentID == "" {
+		return nil, fmt.Errorf("expected hello with agent_id, got type=%q", hello.Type)
+	}
+	return &hello, nil
 }
 
 // handleAgentWS manages GET /api/v1/agents/ws — the persistent WebSocket
@@ -44,18 +58,9 @@ func (s *Server) handleAgentWS(w http.ResponseWriter, r *http.Request) {
 
 	wsc.SetReadLimit(wsMaxMsgSize)
 
-	// Short deadline for the hello frame — bad clients must not linger.
-	wsc.SetReadDeadline(time.Now().Add(wsPongWait))
-	_, raw, err := wsc.ReadMessage()
+	hello, err := readHello(wsc)
 	if err != nil {
-		utils.Logger.Warnf("WS: no hello from %s: %v", r.RemoteAddr, err)
-		wsc.Close()
-		return
-	}
-
-	var hello models.WSMessage
-	if err := json.Unmarshal(raw, &hello); err != nil || hello.Type != models.WSMsgHello || hello.AgentID == "" {
-		utils.Logger.Warnf("WS: invalid hello from %s", r.RemoteAddr)
+		utils.Logger.Warnf("WS: hello failed from %s: %v", r.RemoteAddr, err)
 		wsc.Close()
 		return
 	}
@@ -63,9 +68,9 @@ func (s *Server) handleAgentWS(w http.ResponseWriter, r *http.Request) {
 	agentID := hello.AgentID
 
 	// Reset read deadline to the pong-based keepalive.
-	wsc.SetReadDeadline(time.Now().Add(wsPongWait))
+	wsc.SetReadDeadline(time.Now().Add(models.WSPongWait))
 	wsc.SetPongHandler(func(string) error {
-		wsc.SetReadDeadline(time.Now().Add(wsPongWait))
+		wsc.SetReadDeadline(time.Now().Add(models.WSPongWait))
 		s.store.touchAgent(agentID)
 		return nil
 	})
@@ -108,9 +113,9 @@ func (s *Server) handleAgentWS(w http.ResponseWriter, r *http.Request) {
 }
 
 // wsWriteLoop drains c.send and writes frames. Sends a WebSocket ping every
-// wsPingPeriod so dead connections are detected within wsPongWait.
+// models.WSPingPeriod so dead connections are detected within models.WSPongWait.
 func (s *Server) wsWriteLoop(wsc *websocket.Conn, c *agentConn, agentID string) {
-	ticker := time.NewTicker(wsPingPeriod)
+	ticker := time.NewTicker(models.WSPingPeriod)
 	defer func() {
 		ticker.Stop()
 		wsc.Close()
@@ -118,7 +123,7 @@ func (s *Server) wsWriteLoop(wsc *websocket.Conn, c *agentConn, agentID string) 
 	for {
 		select {
 		case msg, ok := <-c.send:
-			wsc.SetWriteDeadline(time.Now().Add(wsWriteWait))
+			wsc.SetWriteDeadline(time.Now().Add(models.WSWriteWait))
 			if !ok {
 				// Channel closed because a newer connection took over.
 				wsc.WriteMessage(websocket.CloseMessage, []byte{}) //nolint:errcheck
@@ -129,7 +134,7 @@ func (s *Server) wsWriteLoop(wsc *websocket.Conn, c *agentConn, agentID string) 
 				return
 			}
 		case <-ticker.C:
-			wsc.SetWriteDeadline(time.Now().Add(wsWriteWait))
+			wsc.SetWriteDeadline(time.Now().Add(models.WSWriteWait))
 			if err := wsc.WriteMessage(websocket.PingMessage, nil); err != nil {
 				return
 			}
