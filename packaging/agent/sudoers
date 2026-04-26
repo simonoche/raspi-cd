@@ -1,0 +1,20 @@
+# sudoers fragment for the raspicd deployment agent.
+#
+# The agent runs as the 'raspicd' system user and executes scripts placed by
+# the administrator in /etc/raspicd/scripts/. Scripts can declare a companion
+# .user file to run as a specific OS user; the agent calls:
+#
+#   sudo -E -u <user> -- <script>
+#
+# This rule grants that capability without a password prompt.
+#
+# Security notes:
+#   - 'raspicd' has shell=/usr/sbin/nologin and cannot be logged into.
+#   - Only scripts cryptographically signed by the server are executed.
+#   - Scripts are placed in /etc/raspicd/scripts/ by the system administrator.
+#   - If you want to restrict execution to specific users or paths, replace
+#     the ALL below with a Cmnd_Alias listing allowed commands.
+#
+# !requiretty is required because the agent runs under systemd (no tty).
+Defaults:raspicd !requiretty
+raspicd ALL=(ALL) NOPASSWD: ALL
