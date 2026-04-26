@@ -6,11 +6,14 @@ Deploy to Raspberry Pis (or any other host) from any CI/CD pipeline.
 
 No inbound ports are needed on the Pi. The agent connects outbound only.
 
-```
-CI/CD pipeline  ──POST /api/v1/tasks──▶  Server (public)
-                                              │
-                          Agent (Pi) ◀────────┘
-                          WebSocket: task delivered in milliseconds
+```mermaid
+graph LR
+    A["CI/CD Pipeline"] -->|POST /api/v1/tasks| B["Server<br/><i>public internet</i>"]
+    B -->|WebSocket<br/>milliseconds| C["Agent<br/><i>Pi behind NAT</i>"]
+    C -->|Result<br/>via WebSocket| B
+    style A fill:#e1f5ff
+    style B fill:#fff3e0
+    style C fill:#f3e5f5
 ```
 
 ---
