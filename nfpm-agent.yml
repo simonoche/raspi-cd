@@ -1,0 +1,26 @@
+name: raspicd-agent
+platform: linux
+version: ${VERSION}
+maintainer: RasPiCD <noreply@github.com>
+description: |
+  RasPiCD agent daemon. Receives deployment tasks from the RasPiCD server
+  and executes named scripts locally. No inbound ports required — the agent
+  connects outbound only over a persistent WebSocket.
+homepage: https://github.com/simonoche/raspi-cd
+license: MIT
+
+depends:
+  - openssl
+
+contents:
+  - src: bin/raspicd-agent-linux-${BINARY_ARCH}
+    dst: /usr/bin/raspicd-agent
+    file_info:
+      mode: 0755
+
+  - src: packaging/agent/raspicd-agent.service
+    dst: /lib/systemd/system/raspicd-agent.service
+
+scripts:
+  postinstall: packaging/agent/postinst
+  preremove: packaging/agent/prerm

@@ -1,0 +1,13 @@
+#!/bin/bash
+set -e
+
+case "$1" in
+  remove|upgrade|deconfigure)
+    if command -v systemctl >/dev/null 2>&1; then
+        systemctl stop raspicd-agent 2>/dev/null || true
+        systemctl disable raspicd-agent 2>/dev/null || true
+    fi
+    ;;
+esac
+
+exit 0

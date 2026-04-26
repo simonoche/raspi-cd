@@ -1,0 +1,108 @@
+#!/bin/bash
+set -e
+
+CONF=/etc/raspicd/server.env
+DATA_DIR=/var/lib/raspicd
+
+case "$1" in
+  configure)
+
+    # ── System user ────────────────────────────────────────────────────────────
+    if ! id -u raspicd >/dev/null 2>&1; then
+        useradd --system --no-create-home --shell /usr/sbin/nologin raspicd
+    fi
+
+    # ── Directories ────────────────────────────────────────────────────────────
+    mkdir -p /etc/raspicd "$DATA_DIR"
+    chmod 750 /etc/raspicd
+    chmod 750 "$DATA_DIR"
+    chown raspicd:raspicd "$DATA_DIR"
+
+    # ── First-time configuration ───────────────────────────────────────────────
+    if [ ! -f "$CONF" ]; then
+
+        echo ""
+        echo "┌──────────────────────────────────────────────────────┐"
+        echo "│           RasPiCD Server — First-time Setup          │"
+        echo "│                  Generating secrets…                 │"
+        echo "└──────────────────────────────────────────────────────┘"
+        echo ""
+
+        # Generate all secrets automatically
+        CI_SECRET=$(openssl rand -hex 32)
+        AGENT_SECRET=$(openssl rand -hex 32)
+        SIGNING_KEY=$(openssl rand -hex 32)
+
+        # Derive the Ed25519 public key from the signing key seed
+        VERIFY_KEY=$(/usr/bin/raspicd-server --signing-key="$SIGNING_KEY" --print-pubkey 2>/dev/null || true)
+
+        {
+            echo "RASPICD_SECRET=${CI_SECRET}"
+            echo "RASPICD_AGENT_SECRET=${AGENT_SECRET}"
+            echo "RASPICD_SIGNING_KEY=${SIGNING_KEY}"
+            echo "RASPICD_DATA_FILE=${DATA_DIR}/store.json"
+            echo "# RASPICD_BIND=:8080"
+            echo "# RASPICD_AGENT_TIMEOUT=90s"
+            echo "# RASPICD_DEBUG=false"
+        } > "$CONF"
+        chmod 600 "$CONF"
+
+        FRESH_INSTALL=1
+    else
+        FRESH_INSTALL=0
+        # Read existing keys for display
+        CI_SECRET=$(grep "^RASPICD_SECRET=" "$CONF" | cut -d= -f2 || echo "(see $CONF)")
+        AGENT_SECRET=$(grep "^RASPICD_AGENT_SECRET=" "$CONF" | cut -d= -f2 || echo "(see $CONF)")
+        SIGNING_KEY=$(grep "^RASPICD_SIGNING_KEY=" "$CONF" | cut -d= -f2 || echo "")
+        if [ -n "$SIGNING_KEY" ]; then
+            VERIFY_KEY=$(/usr/bin/raspicd-server --signing-key="$SIGNING_KEY" --print-pubkey 2>/dev/null || echo "(run: curl http://localhost:8080/api/v1/pubkey)")
+        else
+            VERIFY_KEY="(run: curl http://localhost:8080/api/v1/pubkey)"
+        fi
+    fi
+
+    chown raspicd:raspicd "$CONF"
+
+    # ── Systemd ────────────────────────────────────────────────────────────────
+    if command -v systemctl >/dev/null 2>&1; then
+        systemctl daemon-reload >/dev/null 2>&1 || true
+        systemctl enable raspicd-server >/dev/null 2>&1 || true
+        systemctl start raspicd-server 2>/dev/null || true
+    fi
+
+    # ── Summary ────────────────────────────────────────────────────────────────
+    echo ""
+    echo "┌──────────────────────────────────────────────────────────────────┐"
+    echo "│                   RasPiCD Server — Keys                         │"
+    echo "│           Save these — you will need them for your agents        │"
+    echo "└──────────────────────────────────────────────────────────────────┘"
+    echo ""
+    echo "  RASPICD_SECRET       (for CI/CD pipelines)"
+    echo "  ${CI_SECRET}"
+    echo ""
+    echo "  RASPICD_AGENT_SECRET (for each agent's agent.env)"
+    echo "  ${AGENT_SECRET}"
+    echo ""
+    echo "  RASPICD_SIGNING_KEY  (server-side, already saved in $CONF)"
+    echo "  ${SIGNING_KEY}"
+    echo ""
+    echo "  RASPICD_VERIFY_KEY   (add to each agent's agent.env)"
+    echo "  ${VERIFY_KEY}"
+    echo ""
+    echo "──────────────────────────────────────────────────────────────────"
+    echo ""
+
+    if command -v systemctl >/dev/null 2>&1 && systemctl is-active raspicd-server >/dev/null 2>&1; then
+        echo "  ✓ RasPiCD Server is running on :8080"
+        echo ""
+        echo "    Status : sudo systemctl status raspicd-server"
+        echo "    Logs   : sudo journalctl -u raspicd-server -f"
+        echo "    Health : curl http://localhost:8080/health"
+    else
+        echo "  Start the server: sudo systemctl start raspicd-server"
+    fi
+    echo ""
+    ;;
+esac
+
+exit 0

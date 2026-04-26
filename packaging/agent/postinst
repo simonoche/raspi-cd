@@ -1,0 +1,110 @@
+#!/bin/bash
+set -e
+
+CONF=/etc/raspicd/agent.env
+SCRIPTS_DIR=/etc/raspicd/scripts
+
+case "$1" in
+  configure)
+
+    # ── System user ────────────────────────────────────────────────────────────
+    if ! id -u raspicd >/dev/null 2>&1; then
+        useradd --system --no-create-home --shell /usr/sbin/nologin raspicd
+    fi
+
+    # ── Directories ────────────────────────────────────────────────────────────
+    mkdir -p "$SCRIPTS_DIR"
+    chmod 750 /etc/raspicd
+    chmod 750 "$SCRIPTS_DIR"
+
+    # ── First-time configuration ───────────────────────────────────────────────
+    if [ ! -f "$CONF" ]; then
+
+        INTERACTIVE=0
+        [ -t 0 ] && INTERACTIVE=1
+
+        if [ "$INTERACTIVE" = "1" ]; then
+            echo ""
+            echo "┌──────────────────────────────────────────────────────┐"
+            echo "│            RasPiCD Agent — First-time Setup          │"
+            echo "└──────────────────────────────────────────────────────┘"
+            echo ""
+
+            while [ -z "$SERVER_URL" ]; do
+                printf "  Server URL (e.g. https://raspicd.example.com): "
+                read -r SERVER_URL
+            done
+
+            printf "  Agent ID [%s]: " "$(hostname)"
+            read -r AGENT_ID
+            AGENT_ID="${AGENT_ID:-$(hostname)}"
+
+            while [ -z "$AGENT_SECRET" ]; do
+                printf "  Agent secret (RASPICD_AGENT_SECRET from the server): "
+                read -r AGENT_SECRET
+            done
+
+            printf "  Verify key (RASPICD_VERIFY_KEY from the server, leave empty to skip): "
+            read -r VERIFY_KEY
+
+            echo ""
+            CONFIGURED=1
+        else
+            # Non-interactive: write a template the admin must fill in
+            SERVER_URL="https://your-server.example.com"
+            AGENT_ID="$(hostname)"
+            AGENT_SECRET="CHANGE_ME"
+            VERIFY_KEY=""
+            CONFIGURED=0
+        fi
+
+        {
+            echo "RASPICD_SERVER=${SERVER_URL}"
+            echo "RASPICD_AGENT_ID=${AGENT_ID}"
+            echo "RASPICD_AGENT_SECRET=${AGENT_SECRET}"
+            [ -n "$VERIFY_KEY" ] && echo "RASPICD_VERIFY_KEY=${VERIFY_KEY}"
+            echo "# RASPICD_SCRIPTS_DIR=/etc/raspicd/scripts"
+            echo "# RASPICD_POLL_INTERVAL=60s"
+            echo "# RASPICD_DEBUG=false"
+        } > "$CONF"
+        chmod 600 "$CONF"
+    else
+        CONFIGURED=1
+    fi
+
+    chown -R raspicd:raspicd /etc/raspicd
+
+    # ── Systemd ────────────────────────────────────────────────────────────────
+    if command -v systemctl >/dev/null 2>&1; then
+        systemctl daemon-reload >/dev/null 2>&1 || true
+        systemctl enable raspicd-agent >/dev/null 2>&1 || true
+
+        # Only auto-start when the config looks complete
+        if [ "${CONFIGURED:-0}" = "1" ] && \
+           grep -q "^RASPICD_AGENT_SECRET=" "$CONF" 2>/dev/null && \
+           ! grep -q "^RASPICD_AGENT_SECRET=CHANGE_ME" "$CONF" 2>/dev/null; then
+            systemctl start raspicd-agent 2>/dev/null || true
+        fi
+    fi
+
+    # ── Summary ────────────────────────────────────────────────────────────────
+    echo ""
+    if [ "${CONFIGURED:-0}" = "1" ] && systemctl is-active raspicd-agent >/dev/null 2>&1; then
+        echo "  ✓ RasPiCD Agent installed and running."
+        echo ""
+        echo "    Status : sudo systemctl status raspicd-agent"
+        echo "    Logs   : sudo journalctl -u raspicd-agent -f"
+        echo "    Scripts: $SCRIPTS_DIR/"
+    else
+        echo "  RasPiCD Agent installed."
+        echo ""
+        echo "  Next steps:"
+        echo "    1. Edit $CONF with your server URL and secrets"
+        echo "    2. sudo systemctl start raspicd-agent"
+        echo "    3. Place scripts in $SCRIPTS_DIR/"
+    fi
+    echo ""
+    ;;
+esac
+
+exit 0

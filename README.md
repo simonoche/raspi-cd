@@ -40,6 +40,16 @@ openssl rand -hex 32   # Agent secret  → RASPICD_AGENT_SECRET
 | `RASPICD_SECRET` | CI/CD pipelines | Create tasks, list tasks and agents |
 | `RASPICD_AGENT_SECRET` | Agents on each Pi | Heartbeat, fetch tasks, report results |
 
+### Quick install (Linux)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/simonoche/raspi-cd/main/scripts/install-server.sh | sudo bash
+```
+
+The script auto-detects your architecture, downloads the latest binary, generates all secrets, writes `/etc/raspicd/server.env`, and starts a systemd service. **The generated keys are printed at the end — save them.**
+
+---
+
 ### Option A — Run with Docker Compose
 
 Create a `docker-compose.yml` on your server host:
@@ -73,50 +83,45 @@ docker compose up -d
 
 The server listens on port `8080`. Put a reverse proxy (nginx, Caddy) in front of it to terminate TLS.
 
-### Option B — Run as a binary
+### Option B — .deb package (Debian / Ubuntu / Raspberry Pi OS)
 
-Pre-built server binaries are available on the [GitHub Releases](../../releases) page alongside the agent binaries.
+.deb packages for `amd64` and `arm64` are attached to every [GitHub Release](../../releases).
+
+```bash
+# Replace with the actual version and architecture
+VERSION=v0.1.0
+ARCH=amd64   # or arm64
+wget "https://github.com/simonoche/raspi-cd/releases/download/${VERSION}/raspicd-server_${VERSION#v}_${ARCH}.deb"
+sudo dpkg -i "raspicd-server_${VERSION#v}_${ARCH}.deb"
+```
+
+The post-install script automatically:
+- Creates a `raspicd` system user
+- Generates `RASPICD_SECRET`, `RASPICD_AGENT_SECRET`, and the Ed25519 signing keypair
+- Writes `/etc/raspicd/server.env`
+- Enables and starts the `raspicd-server` systemd service
+- **Prints all generated keys** at the end — copy them to your agents
+
+### Option C — Manual binary
+
+Pre-built binaries for Linux and macOS are on the [GitHub Releases](../../releases) page.
 
 ```bash
 VERSION=v0.1.0
-BASE="https://github.com/your-org/raspicd/releases/download/${VERSION}"
+BASE="https://github.com/simonoche/raspi-cd/releases/download/${VERSION}"
 
 # Linux x86-64 (most servers / VMs)
 curl -fsSL -o /usr/local/bin/raspicd-server "${BASE}/raspicd-server-linux-amd64"
 chmod +x /usr/local/bin/raspicd-server
 ```
 
-Run it with environment variables:
+Generate secrets and start:
 
 ```bash
-export RASPICD_SECRET=<your-ci-secret>
-export RASPICD_AGENT_SECRET=<your-agent-secret>
-export RASPICD_SIGNING_KEY=<your-signing-key>
+export RASPICD_SECRET=$(openssl rand -hex 32)
+export RASPICD_AGENT_SECRET=$(openssl rand -hex 32)
+export RASPICD_SIGNING_KEY=$(openssl rand -hex 32)
 raspicd-server
-```
-
-Or as a systemd service on Linux:
-
-```bash
-sudo tee /etc/systemd/system/raspicd-server.service > /dev/null <<'EOF'
-[Unit]
-Description=RasPiCD Server
-After=network-online.target
-Wants=network-online.target
-
-[Service]
-Type=simple
-EnvironmentFile=/etc/raspicd/server.env
-ExecStart=/usr/local/bin/raspicd-server
-Restart=on-failure
-RestartSec=5s
-
-[Install]
-WantedBy=multi-user.target
-EOF
-
-sudo systemctl daemon-reload
-sudo systemctl enable --now raspicd-server
 ```
 
 **Verify it is running:**
@@ -154,7 +159,26 @@ your-server.example.com {
 
 ## 2. Install an Agent on a Raspberry Pi
 
-### Download the binary
+### Quick install (Linux)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/simonoche/raspi-cd/main/scripts/install-agent.sh | sudo bash
+```
+
+The script detects your architecture, downloads the latest binary, prompts for your server URL and secrets, and starts a systemd service.
+
+### .deb package (Debian / Ubuntu / Raspberry Pi OS)
+
+```bash
+VERSION=v0.1.0
+ARCH=arm64   # arm64 (Pi 3/4/5 64-bit), amd64, or armhf (Pi 2/3 32-bit)
+wget "https://github.com/simonoche/raspi-cd/releases/download/${VERSION}/raspicd-agent_${VERSION#v}_${ARCH}.deb"
+sudo dpkg -i "raspicd-agent_${VERSION#v}_${ARCH}.deb"
+```
+
+The post-install script interactively prompts for your server URL, agent ID, and secrets, then creates `/etc/raspicd/agent.env` and starts the `raspicd-agent` systemd service.
+
+### Manual binary download
 
 Pre-built binaries for every release are attached to the [GitHub Releases](../../releases) page.
 

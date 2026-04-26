@@ -1,0 +1,15 @@
+[Unit]
+Description=RasPiCD Agent
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=raspicd
+EnvironmentFile=/etc/raspicd/agent.env
+ExecStart=/usr/bin/raspicd-agent
+Restart=on-failure
+RestartSec=5s
+
+[Install]
+WantedBy=multi-user.target

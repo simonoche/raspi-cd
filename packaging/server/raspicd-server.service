@@ -1,0 +1,15 @@
+[Unit]
+Description=RasPiCD Server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=raspicd
+EnvironmentFile=/etc/raspicd/server.env
+ExecStart=/usr/bin/raspicd-server
+Restart=on-failure
+RestartSec=5s
+
+[Install]
+WantedBy=multi-user.target

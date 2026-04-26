@@ -1,0 +1,26 @@
+name: raspicd-server
+platform: linux
+version: ${VERSION}
+maintainer: RasPiCD <noreply@github.com>
+description: |
+  RasPiCD central control server. CI/CD pipelines push deployment tasks to it;
+  agents running on each host maintain a persistent WebSocket connection and
+  receive tasks in milliseconds.
+homepage: https://github.com/simonoche/raspi-cd
+license: MIT
+
+depends:
+  - openssl
+
+contents:
+  - src: bin/raspicd-server-linux-${BINARY_ARCH}
+    dst: /usr/bin/raspicd-server
+    file_info:
+      mode: 0755
+
+  - src: packaging/server/raspicd-server.service
+    dst: /lib/systemd/system/raspicd-server.service
+
+scripts:
+  postinstall: packaging/server/postinst
+  preremove: packaging/server/prerm

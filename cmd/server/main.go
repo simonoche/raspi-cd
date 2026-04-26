@@ -34,18 +34,16 @@ func main() {
 				EnvVars: []string{"RASPICD_BIND"},
 			},
 			&cli.StringFlag{
-				Name:     "secret",
-				Aliases:  []string{"k"},
-				Usage:    "CI/CD Bearer token secret (used by pipelines to create tasks)",
-				EnvVars:  []string{"RASPICD_SECRET"},
-				Required: true,
+				Name:    "secret",
+				Aliases: []string{"k"},
+				Usage:   "CI/CD Bearer token secret (used by pipelines to create tasks)",
+				EnvVars: []string{"RASPICD_SECRET"},
 			},
 			&cli.StringFlag{
-				Name:     "agent-secret",
-				Aliases:  []string{"K"},
-				Usage:    "agent Bearer token secret (used by agents to poll and report)",
-				EnvVars:  []string{"RASPICD_AGENT_SECRET"},
-				Required: true,
+				Name:    "agent-secret",
+				Aliases: []string{"K"},
+				Usage:   "agent Bearer token secret (used by agents to poll and report)",
+				EnvVars: []string{"RASPICD_AGENT_SECRET"},
 			},
 			&cli.DurationFlag{
 				Name:    "agent-timeout",
@@ -73,6 +71,10 @@ func main() {
 				Usage:   "verbose logging",
 				EnvVars: []string{"RASPICD_DEBUG"},
 			},
+			&cli.BoolFlag{
+				Name:  "print-pubkey",
+				Usage: "print the Ed25519 public key for the configured signing key and exit (used by install scripts)",
+			},
 		},
 		Action: run,
 	}
@@ -83,15 +85,24 @@ func main() {
 }
 
 func run(c *cli.Context) error {
-	if c.Bool("debug") {
-		utils.SetDebugLevel()
-	}
-	utils.Logger.Infof("RasPiCD Server %s", version)
-
 	signingKey, err := loadOrGenerateSigningKey(c.String("signing-key"))
 	if err != nil {
 		return err
 	}
+
+	if c.Bool("print-pubkey") {
+		fmt.Println(hex.EncodeToString(signingKey.Public().(ed25519.PublicKey)))
+		return nil
+	}
+
+	if c.String("secret") == "" || c.String("agent-secret") == "" {
+		return fmt.Errorf("--secret and --agent-secret are required (or set RASPICD_SECRET / RASPICD_AGENT_SECRET)")
+	}
+
+	if c.Bool("debug") {
+		utils.SetDebugLevel()
+	}
+	utils.Logger.Infof("RasPiCD Server %s", version)
 
 	srv := server.New(c.String("bind"), c.String("secret"), c.String("agent-secret"), version, c.String("data-file"), c.Duration("agent-timeout"), static.FS, signingKey)
 
