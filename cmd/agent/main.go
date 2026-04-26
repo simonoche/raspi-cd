@@ -8,6 +8,7 @@ import (
 	"math/rand"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -125,6 +126,15 @@ func run(c *cli.Context) error {
 		cancel()
 	}()
 
+	// Verify server's public key matches our expected key (if configured)
+	if vkHex := c.String("verify-key"); vkHex != "" {
+		utils.Logger.Info("Verifying server public key during handshake...")
+		if err := client.VerifyServerPublicKey(ctx, vkHex); err != nil {
+			utils.Logger.Errorf("Public key verification failed: %v", err)
+			return err
+		}
+	}
+
 	bo := newBackoff(maxRetry)
 	fails := 0
 
@@ -136,6 +146,14 @@ func run(c *cli.Context) error {
 			break // clean shutdown
 		}
 		fails++
+
+		// Check for fatal errors that should not be retried
+		errMsg := err.Error()
+		if strings.Contains(errMsg, "server rejected connection") {
+			utils.Logger.Errorf("Fatal error: %v (not retrying)", err)
+			return err
+		}
+
 		delay := bo.next()
 		utils.Logger.Warnf("Connection lost (attempt %d): %v. Retrying in %s ...",
 			fails, err, delay.Round(time.Millisecond))

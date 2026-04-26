@@ -75,6 +75,20 @@ func (s *Server) handleAgentWS(w http.ResponseWriter, r *http.Request) {
 		return nil
 	})
 
+	// Check if this agent ID is already connected
+	if s.hub.isConnected(agentID) {
+		utils.Logger.Warnf("Duplicate connection attempt: agent %s is already connected. Rejecting new connection from %s", agentID, r.RemoteAddr)
+		errMsg := models.WSMessage{
+			Type:   models.WSMsgError,
+			Reason: "Agent ID already connected. Only one connection per agent ID is allowed.",
+		}
+		errBytes, _ := json.Marshal(errMsg)
+		wsc.SetWriteDeadline(time.Now().Add(models.WSWriteWait))
+		wsc.WriteMessage(websocket.TextMessage, errBytes) //nolint:errcheck
+		wsc.Close()
+		return
+	}
+
 	existing, exists := s.store.getAgent(agentID)
 	s.store.upsertAgent(&models.Agent{
 		ID:            agentID,
@@ -87,7 +101,7 @@ func (s *Server) handleAgentWS(w http.ResponseWriter, r *http.Request) {
 	})
 	switch {
 	case !exists:
-		utils.Logger.Infof("Agent connected: %s (%s) v%s", agentID, hello.Hostname, hello.Version)
+		utils.Logger.Infof("Agent connected: %s (%s) %s", agentID, hello.Hostname, hello.Version)
 	case existing.Status == "offline":
 		utils.Logger.Infof("Agent reconnected: %s (%s)", agentID, hello.Hostname)
 	default:
