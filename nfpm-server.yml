@@ -1,5 +1,6 @@
 name: raspicd-server
 platform: linux
+arch: ${DEB_ARCH}
 version: ${VERSION}
 maintainer: RasPiCD <noreply@github.com>
 description: |

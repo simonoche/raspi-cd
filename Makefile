@@ -49,16 +49,16 @@ deb-agent:
 	GOOS=linux GOARCH=amd64       go build $(LDFLAGS) -o $(BIN)/raspicd-agent-linux-amd64  ./cmd/agent
 	GOOS=linux GOARCH=arm64       go build $(LDFLAGS) -o $(BIN)/raspicd-agent-linux-arm64  ./cmd/agent
 	GOOS=linux GOARCH=arm GOARM=7 go build $(LDFLAGS) -o $(BIN)/raspicd-agent-linux-armv7  ./cmd/agent
-	BINARY_ARCH=amd64 VERSION=$(DEB_VERSION) nfpm pkg --config nfpm-agent.yml --packager deb --arch amd64 --target $(BIN)/
-	BINARY_ARCH=arm64 VERSION=$(DEB_VERSION) nfpm pkg --config nfpm-agent.yml --packager deb --arch arm64 --target $(BIN)/
-	BINARY_ARCH=armv7 VERSION=$(DEB_VERSION) nfpm pkg --config nfpm-agent.yml --packager deb --arch armhf --target $(BIN)/
+	BINARY_ARCH=amd64 DEB_ARCH=amd64 VERSION=$(DEB_VERSION) nfpm pkg --config nfpm-agent.yml --packager deb --target $(BIN)/
+	BINARY_ARCH=arm64 DEB_ARCH=arm64 VERSION=$(DEB_VERSION) nfpm pkg --config nfpm-agent.yml --packager deb --target $(BIN)/
+	BINARY_ARCH=armv7 DEB_ARCH=armhf VERSION=$(DEB_VERSION) nfpm pkg --config nfpm-agent.yml --packager deb --target $(BIN)/
 
 deb-server:
 	@mkdir -p $(BIN)
 	GOOS=linux GOARCH=amd64 go build $(LDFLAGS) -o $(BIN)/raspicd-server-linux-amd64  ./cmd/server
 	GOOS=linux GOARCH=arm64 go build $(LDFLAGS) -o $(BIN)/raspicd-server-linux-arm64  ./cmd/server
-	BINARY_ARCH=amd64 VERSION=$(DEB_VERSION) nfpm pkg --config nfpm-server.yml --packager deb --arch amd64 --target $(BIN)/
-	BINARY_ARCH=arm64 VERSION=$(DEB_VERSION) nfpm pkg --config nfpm-server.yml --packager deb --arch arm64 --target $(BIN)/
+	BINARY_ARCH=amd64 DEB_ARCH=amd64 VERSION=$(DEB_VERSION) nfpm pkg --config nfpm-server.yml --packager deb --target $(BIN)/
+	BINARY_ARCH=arm64 DEB_ARCH=arm64 VERSION=$(DEB_VERSION) nfpm pkg --config nfpm-server.yml --packager deb --target $(BIN)/
 
 test:
 	go test -race ./...
