@@ -101,7 +101,7 @@ func (s *Server) handleAgentWS(w http.ResponseWriter, r *http.Request) {
 	})
 	switch {
 	case !exists:
-		utils.Logger.Infof("Agent connected: %s (%s) v%s", agentID, hello.Hostname, hello.Version)
+		utils.Logger.Infof("Agent connected: %s (%s) %s", agentID, hello.Hostname, hello.Version)
 	case existing.Status == "offline":
 		utils.Logger.Infof("Agent reconnected: %s (%s)", agentID, hello.Hostname)
 	default:
