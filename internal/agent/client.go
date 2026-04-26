@@ -204,6 +204,16 @@ func (c *Client) Connect(ctx context.Context, hostname, version string, exec *Ex
 			continue
 		}
 
+		// Handle error messages from server (e.g., duplicate agent ID)
+		if msg.Type == models.WSMsgError {
+			reason := msg.Reason
+			if reason == "" {
+				reason = "unknown error"
+			}
+			utils.Logger.Errorf("Server rejected connection: %s", reason)
+			return fmt.Errorf("server rejected connection: %s", reason)
+		}
+
 		if msg.Type == models.WSMsgTask && msg.Task != nil {
 			utils.Logger.Infof("Received task %s (script: %s)", msg.Task.ID, msg.Task.Script)
 			select {
