@@ -12,7 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
- "regexp"
+	"regexp"
 
 	"raspicd/internal/models"
 	"raspicd/internal/utils"
@@ -211,7 +211,7 @@ func buildEnv(taskID, agentID string, config map[string]interface{}) []string {
 
 // isValidSegment returns true if matches regexp
 func isValidSegment(s string) bool {
- return segmentRegex.MatchString(s)
+	return segmentRegex.MatchString(s)
 }
 
 // isValidScriptName returns true if name is one or more [a-zA-Z0-9_-] segments
