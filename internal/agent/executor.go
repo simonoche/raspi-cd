@@ -12,10 +12,15 @@ import (
 	"strconv"
 	"strings"
 	"time"
+ "regexp"
 
 	"raspicd/internal/models"
 	"raspicd/internal/utils"
 )
+
+
+// misc patterns
+var segmentRegex = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
 
 // Executor runs tasks on the local machine.
 type Executor struct {
@@ -204,18 +209,9 @@ func buildEnv(taskID, agentID string, config map[string]interface{}) []string {
 	return env
 }
 
-// isValidSegment returns true if s contains only [a-zA-Z0-9_-].
+// isValidSegment returns true if matches regexp
 func isValidSegment(s string) bool {
-	if s == "" {
-		return false
-	}
-	for _, c := range s {
-		if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
-			(c >= '0' && c <= '9') || c == '-' || c == '_') {
-			return false
-		}
-	}
-	return true
+ return segmentRegex.MatchString(s)
 }
 
 // isValidScriptName returns true if name is one or more [a-zA-Z0-9_-] segments
